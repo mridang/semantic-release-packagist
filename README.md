@@ -50,7 +50,7 @@ module.exports = {
     [
       '@mridang/semantic-release-packagist',
       {
-        username: 'your-packagist-username',
+        username: process.env.PACKAGIST_USERNAME,
         apiToken: process.env.PACKAGIST_TOKEN, // Use an environment variable for security
       },
     ],

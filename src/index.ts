@@ -38,19 +38,22 @@ export async function verifyConditions(
 ): Promise<void> {
   const { logger, options } = context;
 
-  if (!pluginConfig.username) {
+  const username = pluginConfig.username || process.env.PACKAGIST_USERNAME;
+  const apiToken = pluginConfig.apiToken || process.env.PACKAGIST_TOKEN;
+
+  if (!username) {
     throw new SemanticReleaseError(
       'Packagist username is not set.',
       'ENOPACKAGISTUSERNAME',
-      'Please provide your Packagist username in the plugin configuration.',
+      'Please provide your Packagist username in the plugin configuration or as a PACKAGIST_USERNAME environment variable.',
     );
   }
 
-  if (!pluginConfig.apiToken) {
+  if (!apiToken) {
     throw new SemanticReleaseError(
       'Packagist API token is not set.',
       'ENOPACKAGISTAPITOKEN',
-      'Please provide your Packagist API token in the plugin configuration.',
+      'Please provide your Packagist API token in the plugin configuration or as a PACKAGIST_TOKEN environment variable.',
     );
   }
 
@@ -114,7 +117,8 @@ export async function publish(
   const { logger, options } = context;
 
   try {
-    const { username, apiToken } = pluginConfig;
+    const username = pluginConfig.username || process.env.PACKAGIST_USERNAME;
+    const apiToken = pluginConfig.apiToken || process.env.PACKAGIST_TOKEN;
     const { repositoryUrl } = options;
 
     logger.log(`Notifying Packagist to update the package at ${repositoryUrl}`);
@@ -133,18 +137,21 @@ export async function publish(
       switch (response.status) {
         case 401:
         case 403:
+          // noinspection ExceptionCaughtLocallyJS
           throw new SemanticReleaseError(
             'Invalid Packagist credentials.',
             'EINVALIDPACKAGISTTOKEN',
             `The Packagist API returned a ${response.status} status. Please check that the configured \`username\` and \`apiToken\` are correct and have permissions to update the package.`,
           );
         case 404:
+          // noinspection ExceptionCaughtLocallyJS
           throw new SemanticReleaseError(
             'Packagist package not found.',
             'EPACKAGISTNOTFOUND',
             `The Packagist API returned a 404 Not Found error. Please check that the package linked to the repository \`${repositoryUrl}\` exists on Packagist.`,
           );
         default:
+          // noinspection ExceptionCaughtLocallyJS
           throw new SemanticReleaseError(
             `Failed to notify Packagist: ${response.statusText}`,
             'EPACKAGISTAPI',

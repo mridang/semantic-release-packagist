@@ -3,19 +3,37 @@ import * as fs from 'fs';
 import { Context, PluginConfig } from 'semantic-release';
 // @ts-expect-error since this is not typed
 import SemanticReleaseError from '@semantic-release/error';
+import { exec } from 'node:child_process';
 
+/**
+ * The configuration for the Packagist plugin.
+ */
 /**
  * The configuration for the Packagist plugin.
  */
 export interface PackagistPluginConfig extends PluginConfig {
   /**
    * Your Packagist username.
+   * Can be provided via the PACKAGIST_USERNAME environment variable.
    */
-  username: string;
+  username?: string;
   /**
    * Your Packagist API Token.
+   * Can be provided via the PACKAGIST_TOKEN environment variable.
    */
-  apiToken: string;
+  apiToken?: string;
+  /**
+   * Optional. A custom function to validate composer.json.
+   * If not provided, defaults to running `composer validate --strict`.
+   * The function should throw an error if validation fails.
+   * @param cwd The current working directory.
+   * @param logger The semantic-release logger.
+   * @returns {Promise<void>}
+   */
+  composerValidationCommand?: (
+    cwd: string,
+    logger: Context['logger'],
+  ) => Promise<void>;
 }
 
 /**
@@ -27,16 +45,60 @@ interface ComposerJson {
 }
 
 /**
- * Verifies the conditions for the plugin to run.
+ * Verifies the conditions for the plugin to run. This includes checking for
+ * `composer.json` and running `composer validate`, and ensuring Packagist
+ * credentials and the repository URL are available.
  * @param pluginConfig The plugin configuration.
  * @param context The semantic-release context.
- * @throws {SemanticReleaseError} If required configuration or context is missing.
+ * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
+ */
+/**
+ * Verifies the conditions for the plugin to run. This includes checking for
+ * `composer.json` and running validation (default or custom), and ensuring Packagist
+ * credentials and the repository URL are available.
+ * @param pluginConfig The plugin configuration.
+ * @param context The semantic-release context.
+ * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
  */
 export async function verifyConditions(
   pluginConfig: PackagistPluginConfig,
   context: Context,
 ): Promise<void> {
-  const { logger, options } = context;
+  const { logger, options, cwd } = context;
+
+  const composerJsonPath = `${cwd}/composer.json`;
+  if (fs.existsSync(composerJsonPath)) {
+    logger.log('Validating composer.json...');
+
+    // Define the default validation command
+    const defaultValidateCommand = async (
+      currentWorkingDir: string,
+      log: Context['logger'],
+    ): Promise<void> => {
+      log.log('Executing default validation: composer validate --strict');
+      await exec('composer validate --strict', { cwd: currentWorkingDir });
+      log.log('composer.json is valid (default validation).');
+    };
+
+    const validateFn =
+      pluginConfig.composerValidationCommand || defaultValidateCommand;
+
+    try {
+      await validateFn(cwd, logger);
+    } catch {
+      throw new SemanticReleaseError(
+        '`composer.json` validation failed.',
+        'EINVALIDCOMPOSERJSON',
+        'The `composer.json` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run `composer validate --strict` locally.',
+      );
+    }
+  } else {
+    throw new SemanticReleaseError(
+      'composer.json not found.',
+      'EMISSINGCOMPOSERJSON',
+      `A \`composer.json\` file is required by this plugin but was not found in ${cwd}.`,
+    );
+  }
 
   const username = pluginConfig.username || process.env.PACKAGIST_USERNAME;
   const apiToken = pluginConfig.apiToken || process.env.PACKAGIST_TOKEN;

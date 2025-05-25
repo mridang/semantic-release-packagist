@@ -13,6 +13,7 @@ Without this plugin, developers typically face one of two issues:
 
 - **Dependency on a GitHub App:** The most common method for automation is installing the official Packagist GitHub App. However, this requires administrative permissions on the repository or organization. Some security policies or development workflows may not permit installing external applications, or you may simply prefer a more lightweight integration.
 - **Incomplete Automation:** Other existing `semantic-release` plugins for Composer may correctly update the `version` in your `composer.json` file, but they often stop there. They do not handle the final, crucial step of notifying Packagist that a new version is ready. This leaves a manual gap in the release process, forcing you to log in to Packagist and click "Update" or configure separate webhooks.
+- **Missing Metadata Validation:** Many tools may update your `composer.json` but might skip the essential step of validating its contents (e.g., via `composer validate`). This can lead to attempting to publish a new version that Packagist later rejects due to metadata errors, interrupting the release flow and requiring manual intervention.
 
 This plugin provides a lightweight and direct solution by using the Packagist API. Instead of relying on a GitHub App, it authenticates with a simple `username` and `apiToken` that you provide. It bridges the gap in the release process by ensuring that after `semantic-release` successfully creates a new release, your Packagist package is immediately synchronized. This creates a seamless, end-to-end automated pipeline directly within your `semantic-release` configuration, without requiring extra permissions or external app installations.
 
@@ -21,7 +22,7 @@ This plugin provides a lightweight and direct solution by using the Packagist AP
 Install using NPM by using the following command:
 
 ```sh
-npm install --save @mridang/semantic-release-packagist
+npm install --save-dev @mridang/semantic-release-packagist
 ```
 
 ## Usage

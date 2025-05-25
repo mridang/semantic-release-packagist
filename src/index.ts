@@ -8,9 +8,6 @@ import { exec } from 'node:child_process';
 /**
  * The configuration for the Packagist plugin.
  */
-/**
- * The configuration for the Packagist plugin.
- */
 export interface PackagistPluginConfig extends PluginConfig {
   /**
    * Your Packagist username.
@@ -34,6 +31,19 @@ export interface PackagistPluginConfig extends PluginConfig {
     cwd: string,
     logger: Context['logger'],
   ) => Promise<void>;
+  /**
+   * Optional. A custom function to update composer.lock.
+   * If not provided, defaults to running `composer update --lock`.
+   * This is only run if a composer.lock file exists.
+   * The function should throw an error if the update fails.
+   * @param cwd The current working directory.
+   * @param logger The semantic-release logger.
+   * @returns {Promise<void>}
+   */
+  composerLockUpdateCommand?: (
+    cwd: string,
+    logger: Context['logger'],
+  ) => Promise<void>;
 }
 
 /**
@@ -52,14 +62,6 @@ interface ComposerJson {
  * @param context The semantic-release context.
  * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
  */
-/**
- * Verifies the conditions for the plugin to run. This includes checking for
- * `composer.json` and running validation (default or custom), and ensuring Packagist
- * credentials and the repository URL are available.
- * @param pluginConfig The plugin configuration.
- * @param context The semantic-release context.
- * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
- */
 export async function verifyConditions(
   pluginConfig: PackagistPluginConfig,
   context: Context,
@@ -70,7 +72,6 @@ export async function verifyConditions(
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Validating composer.json...');
 
-    // Define the default validation command
     const defaultValidateCommand = async (
       currentWorkingDir: string,
       log: Context['logger'],
@@ -131,13 +132,14 @@ export async function verifyConditions(
 }
 
 /**
- * Prepares the release by updating the `composer.json` file with the new version.
- * @param _pluginConfig The plugin configuration (not used in this step).
+ * Prepares the release by updating the `version` field in `composer.json`
+ * and optionally updating `composer.lock`.
+ * @param pluginConfig The plugin configuration.
  * @param context The semantic-release context.
- * @throws {SemanticReleaseError} If composer.json is not found.
+ * @throws {SemanticReleaseError} If composer.json is not found or if lock file update fails.
  */
 export async function prepare(
-  _pluginConfig: PackagistPluginConfig,
+  pluginConfig: PackagistPluginConfig,
   context: Context,
 ): Promise<void> {
   const {
@@ -147,7 +149,6 @@ export async function prepare(
   } = context;
 
   const composerJsonPath = `${cwd}/composer.json`;
-
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Writing version %s to %s', version, composerJsonPath);
 
@@ -157,6 +158,37 @@ export async function prepare(
     fs.writeFileSync(composerJsonPath, JSON.stringify(composerData, null, 4));
 
     logger.log('Prepared composer.json');
+
+    const composerLockPath = `${cwd}/composer.lock`;
+    if (fs.existsSync(composerLockPath)) {
+      logger.log('Updating composer.lock...');
+
+      const defaultLockUpdateCommand = async (
+        currentWorkingDir: string,
+        log: Context['logger'],
+      ): Promise<void> => {
+        log.log('Executing default lock update: composer update --lock');
+        await exec('composer update --lock', { cwd: currentWorkingDir });
+        log.log('composer.lock updated (default command).');
+      };
+
+      const updateLockFn =
+        pluginConfig.composerLockUpdateCommand || defaultLockUpdateCommand;
+
+      try {
+        await updateLockFn(cwd, logger);
+      } catch (error: unknown) {
+        throw new SemanticReleaseError(
+          '`composer.lock` update failed.',
+          'ELOCKUPDATEFAILED',
+          error instanceof Error
+            ? error.message
+            : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
+        );
+      }
+    } else {
+      logger.log('composer.lock not found, skipping lock file update.');
+    }
   } else {
     throw new SemanticReleaseError(
       'composer.json not found during prepare step.',

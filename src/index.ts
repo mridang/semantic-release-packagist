@@ -21,7 +21,7 @@ export interface PackagistPluginConfig extends PluginConfig {
   apiToken?: string;
   /**
    * Optional. A custom function to validate composer.json.
-   * If not provided, defaults to running `composer validate --strict`.
+   * If not provided, defaults to running `composer validate --strict --no-check-version`.
    * The function should throw an error if validation fails.
    * @param cwd The current working directory.
    * @param logger The semantic-release logger.
@@ -76,8 +76,10 @@ export async function verifyConditions(
       currentWorkingDir: string,
       log: Context['logger'],
     ): void => {
-      log.log('Executing default validation: composer validate --strict');
-      execSync('composer validate --strict', {
+      log.log(
+        'Executing default validation: composer validate --strict --no-check-version',
+      );
+      execSync('composer validate --strict --no-check-version', {
         cwd: currentWorkingDir,
         stdio: 'pipe',
       });
@@ -98,7 +100,7 @@ export async function verifyConditions(
       throw new SemanticReleaseError(
         '`composer.json` validation failed.',
         'EINVALIDCOMPOSERJSON',
-        'The `composer.json` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run `composer validate --strict` locally.',
+        'The `composer.json` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run `composer validate --strict --no-check-version` locally.',
       );
     }
   } else {

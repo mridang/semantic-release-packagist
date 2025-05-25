@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { Context, PluginConfig } from 'semantic-release';
 // @ts-expect-error since this is not typed
 import SemanticReleaseError from '@semantic-release/error';
-import { exec } from 'node:child_process';
+import { execSync } from 'node:child_process';
 
 /**
  * The configuration for the Packagist plugin.
@@ -72,17 +72,25 @@ export async function verifyConditions(
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Validating composer.json...');
 
-    const defaultValidateCommand = async (
+    const defaultValidateCommandSync = (
       currentWorkingDir: string,
       log: Context['logger'],
-    ): Promise<void> => {
+    ): void => {
       log.log('Executing default validation: composer validate --strict');
-      await exec('composer validate --strict', { cwd: currentWorkingDir });
+      execSync('composer validate --strict', {
+        cwd: currentWorkingDir,
+        stdio: 'pipe',
+      });
       log.log('composer.json is valid (default validation).');
     };
 
-    const validateFn =
-      pluginConfig.composerValidationCommand || defaultValidateCommand;
+    const validateFn: (
+      cwd: string,
+      logger: Context['logger'],
+    ) => Promise<void> =
+      pluginConfig.composerValidationCommand ||
+      (async (currentWorkingDir, log) =>
+        defaultValidateCommandSync(currentWorkingDir, log));
 
     try {
       await validateFn(cwd, logger);
@@ -163,17 +171,26 @@ export async function prepare(
     if (fs.existsSync(composerLockPath)) {
       logger.log('Updating composer.lock...');
 
-      const defaultLockUpdateCommand = async (
+      const defaultLockUpdateCommandSync = (
         currentWorkingDir: string,
         log: Context['logger'],
-      ): Promise<void> => {
+      ): void => {
         log.log('Executing default lock update: composer update --lock');
-        await exec('composer update --lock', { cwd: currentWorkingDir });
+        // execSync will throw an error if the command fails
+        execSync('composer update --lock', {
+          cwd: currentWorkingDir,
+          stdio: 'pipe',
+        });
         log.log('composer.lock updated (default command).');
       };
 
-      const updateLockFn =
-        pluginConfig.composerLockUpdateCommand || defaultLockUpdateCommand;
+      const updateLockFn: (
+        cwd: string,
+        logger: Context['logger'],
+      ) => Promise<void> =
+        pluginConfig.composerLockUpdateCommand ||
+        (async (currentWorkingDir, log) =>
+          defaultLockUpdateCommandSync(currentWorkingDir, log));
 
       try {
         await updateLockFn(cwd, logger);

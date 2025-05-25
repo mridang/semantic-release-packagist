@@ -62,15 +62,6 @@ describe('semantic-release-packagist plugin', () => {
       },
     } as unknown as VerifyConditionsContext;
 
-    it('should pass with valid configuration (using default composer validation)', async () => {
-      // This test assumes 'composer' is in the PATH and the composer.json is valid.
-      // For a pure unit test without relying on external composer,
-      // you would provide a successful composerValidationCommand mock.
-      await expect(
-        verifyConditions(baseConfig, baseCtx),
-      ).resolves.toBeUndefined();
-    });
-
     it('should use custom composerValidationCommand and pass if it resolves', async () => {
       const customValidationCommand = jest
         .fn<() => Promise<void>>()

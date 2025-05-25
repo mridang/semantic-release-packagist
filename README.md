@@ -29,7 +29,7 @@ npm install --save-dev @mridang/semantic-release-packagist
 
 To use this plugin, add it to your semantic-release configuration file (e.g., `.releaserc.js`, `release.config.js`, or in your `package.json`).
 
-The plugin's `prepare` step modifies your `composer.json` file.
+The plugin's `prepare` step modifies your `composer.json` and the `composer.lock` file.
 For this change to be included in the release commit, the plugin should be
 placed **before** `@semantic-release/git` and `@semantic-release/github` in
 the `plugins` array.
@@ -38,7 +38,7 @@ the `plugins` array.
 > This plugin updates the `version` field in your `composer.json` file during the
 > `prepare` step. For this change to be included in your release commit,
 > you **must** configure the `@semantic-release/git` plugin to add
-> `composer.json` to its `assets` array.
+> `composer.json` and the `composer.locj` to its `assets` array.
 
 **Example Configuration (`.releaserc.js`):**
 

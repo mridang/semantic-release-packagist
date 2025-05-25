@@ -1,6 +1,6 @@
 {
 	"name": "@mridang/semantic-release-packagist-packagist",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"type": "module",
 	"scripts": {
 		"prepack": "tsc",

@@ -48,7 +48,7 @@
 		"@mridang/eslint-defaults": "^1.0.0",
 		"@semantic-release/commit-analyzer": "^13.0.1",
 		"@semantic-release/git": "^10.0.1",
-		"@semantic-release/github": "^10.0.5",
+		"@semantic-release/github": "^11.0.3",
 		"@semantic-release/npm": "^12.0.1",
 		"@semantic-release/release-notes-generator": "^14.0.0",
 		"@tsconfig/node20": "latest",

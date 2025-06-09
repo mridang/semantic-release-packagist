@@ -28,7 +28,7 @@
 	"files": [
 		"dist"
 	],
-	"license": "ISC",
+	"license": "Apache-2.0",
 	"description": "Semantic Release plugin that prevents major releases unless a corresponding tag exists on a specific branch in an upstream GitHub repository.",
 	"private": false,
 	"engines": {

@@ -53,7 +53,7 @@
     "@semantic-release/release-notes-generator": "^14.1.0",
     "@tsconfig/node22": "^22.0.2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.18.12",
+    "@types/node": "^24.9.1",
     "eslint": "^9.27.0",
     "jest": "^30.0.3",
     "knip": "^5.43.6",

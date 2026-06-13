@@ -1,4 +1,9 @@
-// noinspection JSUnusedGlobalSymbols
+import { readFileSync } from 'fs';
+
+const packageJson = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8'),
+);
+
 export default {
   branches: ['master'],
   plugins: [
@@ -28,6 +33,5 @@ export default {
       },
     ],
   ],
-  repositoryUrl:
-    'git+https://github.com/mridang/semantic-release-packagist.git',
+  repositoryUrl: packageJson.repository.url,
 };

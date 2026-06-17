@@ -44,8 +44,9 @@
     "@semantic-release/error": "^4.0.0"
   },
   "devDependencies": {
+    "@eslint/compat": "^2.1.0",
     "@jest/globals": "^30.0.3",
-    "@mridang/eslint-defaults": "^1.4.0",
+    "@mridang/eslint-defaults": "^1.6.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.0",
@@ -54,10 +55,10 @@
     "@tsconfig/node22": "^22.0.2",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.18.12",
-    "eslint": "^9.27.0",
+    "eslint": "^9.39.4",
     "jest": "^30.0.3",
     "jest-junit": "^16.0.0",
-    "knip": "^5.43.6",
+    "knip": "^6.17.1",
     "prettier": "^3.1.1",
     "semantic-release": "^25.0.1",
     "ts-jest": "^29.4.0",

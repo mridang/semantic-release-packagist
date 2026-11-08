@@ -23,3 +23,18 @@ export function stringAt(
   const value = Object.hasOwn(record, key) ? record[key] : undefined;
   return typeof value === 'string' ? value : undefined;
 }
+
+/**
+ * Read an own number property of an untrusted object.
+ *
+ * @param record The object.
+ * @param key Property name.
+ * @returns The value when it is a number, otherwise undefined.
+ */
+export function numberAt(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): number | undefined {
+  const value = Object.hasOwn(record, key) ? record[key] : undefined;
+  return typeof value === 'number' ? value : undefined;
+}

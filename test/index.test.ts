@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import plugin, { prepare, publish, verifyConditions } from '../src/index.js';
@@ -12,6 +19,16 @@ import {
 } from './utils/context.js';
 import { withComposer } from './utils/composer.js';
 import { withTmp } from './utils/tmpdir.js';
+
+/**
+ * Fail closed: unless a test mocks the Packagist call itself, a step that
+ * reaches it fails instead of reaching the network.
+ */
+beforeEach(() => {
+  jest
+    .spyOn(PackagistClient.prototype, 'updatePackage')
+    .mockRejectedValue(new Error('PackagistClient used without a mock'));
+});
 
 afterEach(() => {
   jest.restoreAllMocks();

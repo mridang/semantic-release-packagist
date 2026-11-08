@@ -18,7 +18,7 @@ function withFetcher(...responses: Response[]): {
 }
 
 /**
- * A client that talks to an in-memory Packagist, backing off for 1ms.
+ * A client that talks to an in-memory Packagist.
  */
 function withMock(): {
   client: PackagistClient;
@@ -27,7 +27,7 @@ function withMock(): {
   const agent = new MockAgent();
   agent.disableNetConnect();
   return {
-    client: new PackagistClient(CREDENTIALS, { agent, minTimeout: 1 }),
+    client: new PackagistClient(CREDENTIALS, { agent }),
     packagist: agent.get('https://packagist.org'),
   };
 }
@@ -55,7 +55,7 @@ describe('PackagistClient.updatePackage', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repository: { url: REPOSITORY } }),
     });
-    expect(init?.dispatcher).toBeDefined();
+    expect(init?.dispatcher).toBeUndefined();
   });
 
   it.each([401, 403])(
@@ -91,51 +91,59 @@ describe('PackagistClient.updatePackage', () => {
     });
   });
 
-  it('rethrows a failure that has no HTTP status', async () => {
+  it('reports a failure that has no HTTP status with its cause', async () => {
     const fetcher = jest
       .fn<typeof fetch>()
-      .mockRejectedValue(new TypeError('fetch failed'));
+      .mockRejectedValue(
+        new TypeError('fetch failed', { cause: new Error('socket hang up') }),
+      );
     const client = new PackagistClient(CREDENTIALS, { fetcher });
     await expect(client.updatePackage(REPOSITORY)).rejects.toThrow(
-      'fetch failed',
+      'fetch failed: socket hang up',
     );
   });
 
-  it('retries a server error and then succeeds', async () => {
-    const { client, packagist } = withMock();
-    packagist.intercept(UPDATE).reply(503, 'busy');
-    packagist.intercept(UPDATE).reply(200, '{}');
-    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+  it('reports a failure that is not an error as text', async () => {
+    const fetcher = jest.fn<typeof fetch>().mockRejectedValue('offline');
+    const client = new PackagistClient(CREDENTIALS, { fetcher });
+    await expect(client.updatePackage(REPOSITORY)).rejects.toThrow('offline');
   });
 
-  it('retries throttling and then succeeds', async () => {
+  it.each([503, 429])(
+    'does not retry the update after a %s',
+    async (status) => {
+      const { client, packagist } = withMock();
+      packagist.intercept(UPDATE).reply(status, 'busy').times(1);
+      packagist.intercept(UPDATE).reply(200, '{}');
+      await expect(client.updatePackage(REPOSITORY)).rejects.toMatchObject({
+        code: 'EPACKAGISTAPI',
+        details: `The Packagist API returned an unexpected ${status} status. Response: busy`,
+      });
+    },
+  );
+
+  it('does not retry the update after a dropped connection', async () => {
     const { client, packagist } = withMock();
     packagist
       .intercept(UPDATE)
-      .reply(429, 'slow down', { headers: { 'retry-after': '0' } });
+      .replyWithError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+      .times(1);
     packagist.intercept(UPDATE).reply(200, '{}');
-    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+    await expect(client.updatePackage(REPOSITORY)).rejects.toThrow(
+      /fetch failed: reset/,
+    );
   });
 
-  it('retries a dropped connection and then succeeds', async () => {
+  it('does not leak the token when the connection drops', async () => {
     const { client, packagist } = withMock();
     packagist
       .intercept(UPDATE)
-      .replyWithError(
-        Object.assign(new Error('reset'), { code: 'ECONNRESET' }),
-      );
-    packagist.intercept(UPDATE).reply(200, '{}');
-    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
-  });
-
-  it('gives up after the retries and reports the last status', async () => {
-    const { client, packagist } = withMock();
-    packagist.intercept(UPDATE).reply(503, 'busy').times(4);
-    await expect(client.updatePackage(REPOSITORY)).rejects.toMatchObject({
-      code: 'EPACKAGISTAPI',
-      message: 'Failed to notify Packagist: Service Unavailable',
-      details: expect.stringContaining('unexpected 503 status'),
-    });
+      .replyWithError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+      .times(1);
+    const failure = await client
+      .updatePackage(REPOSITORY)
+      .catch((e: unknown) => e);
+    expect(String(failure)).not.toContain('SECRET-TOKEN');
   });
 
   it('does not retry a rejection of the credentials', async () => {
@@ -144,18 +152,5 @@ describe('PackagistClient.updatePackage', () => {
     await expect(client.updatePackage(REPOSITORY)).rejects.toMatchObject({
       code: 'EINVALIDPACKAGISTTOKEN',
     });
-  });
-
-  it('gives up on a connection that keeps dropping without leaking the token', async () => {
-    const { client, packagist } = withMock();
-    packagist
-      .intercept(UPDATE)
-      .replyWithError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
-      .times(4);
-    const failure = await client
-      .updatePackage(REPOSITORY)
-      .catch((e: unknown) => e);
-    expect(failure).toBeInstanceOf(Error);
-    expect(String(failure)).not.toContain('SECRET-TOKEN');
   });
 });

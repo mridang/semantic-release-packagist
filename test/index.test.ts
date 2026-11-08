@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import plugin, { prepare, publish, verifyConditions } from '../src/index.js';
+import type { StepLogger } from '../src/plugin-config.js';
 import { PackagistClient } from '../src/packagist.js';
 import {
   REPOSITORY_URL,
@@ -11,10 +12,13 @@ import {
 } from './utils/context.js';
 import { withTmp } from './utils/tmpdir.js';
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 const CONFIG = { username: 'test-user', apiToken: 'test-token' };
 const COMPOSER = JSON.stringify({ name: 'test/pkg', version: '1.0.0' });
+type CustomCommand = (cwd: string, logger: StepLogger) => Promise<void>;
 const passes = async (): Promise<void> => undefined;
 
 /**
@@ -36,7 +40,7 @@ describe('the plugin', () => {
 describe('verifyConditions', () => {
   it('passes with a valid composer.json, credentials and repository URL', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
-      const command = jest.fn<() => Promise<void>>().mockResolvedValue();
+      const command = jest.fn<CustomCommand>().mockResolvedValue();
       const { context, lines } = verifyContext({ cwd });
       await expect(
         verifyConditions(
@@ -174,7 +178,7 @@ describe('prepare', () => {
     await withTmp(
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
-        const command = jest.fn<() => Promise<void>>().mockResolvedValue();
+        const command = jest.fn<CustomCommand>().mockResolvedValue();
         const { context } = prepareContext({ cwd });
         await prepare(
           { ...CONFIG, composerLockUpdateCommand: command },

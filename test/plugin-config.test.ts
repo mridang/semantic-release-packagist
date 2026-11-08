@@ -26,6 +26,16 @@ describe('resolveCredentials', () => {
     ).toStrictEqual({ username: 'u', apiToken: 't' });
   });
 
+  it('treats null from a config file like a missing value', () => {
+    const fromFile = JSON.parse('{"username":null,"apiToken":null}');
+    expect(
+      resolveCredentials(fromFile, {
+        PACKAGIST_USERNAME: 'env-u',
+        PACKAGIST_TOKEN: 'env-t',
+      }),
+    ).toStrictEqual({ username: 'env-u', apiToken: 'env-t' });
+  });
+
   it('refuses a missing username', () => {
     expect(() =>
       resolveCredentials({ username: '', apiToken: 't' }, {}),

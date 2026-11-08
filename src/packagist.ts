@@ -1,12 +1,44 @@
-import { STATUS_CODES } from 'node:http';
 import SemanticReleaseError from '@semantic-release/error';
-import { Agent, RetryAgent, fetch, type Dispatcher } from 'undici';
+import {
+  RetryAgent,
+  fetch,
+  getGlobalDispatcher,
+  type Dispatcher,
+} from 'undici';
 import type { PackagistCredentials } from './plugin-config.js';
-import { isRecord, numberAt } from './utils/object.js';
+import { messageOf } from './utils/error.js';
 
 const UPDATE_PACKAGE_URL = 'https://packagist.org/api/update-package';
 
-const TIMEOUT_MS = 30000;
+/**
+ * The longest a whole notification may take, retries and back-off included.
+ */
+const TOTAL_TIMEOUT_MS = 120000;
+
+/**
+ * The longest wait between two attempts, which also caps a `Retry-After`
+ * header from Packagist.
+ */
+const MAX_BACKOFF_MS = 15000;
+
+/**
+ * Failures worth another attempt, for the methods that may be retried. Naming them replaces undici's own list, so
+ * it is repeated here with the three timeout codes added.
+ */
+const RETRYABLE_ERROR_CODES = [
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'ENETDOWN',
+  'ENETUNREACH',
+  'EHOSTDOWN',
+  'EHOSTUNREACH',
+  'EPIPE',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+];
 
 /**
  * Options for building a {@link PackagistClient}. All of them exist so that
@@ -17,8 +49,6 @@ export interface PackagistClientOptions {
   readonly fetcher?: typeof fetch;
   /** The dispatcher that is wrapped in the retrying agent. */
   readonly agent?: Dispatcher;
-  /** The first back-off in milliseconds, then doubled up to `maxTimeout`. */
-  readonly minTimeout?: number;
 }
 
 /**
@@ -35,17 +65,19 @@ type Reply =
     };
 
 /**
- * The HTTP status that made undici give up retrying. After the last retry
- * undici rejects with a `fetch failed` error whose `cause` carries the status
- * of the final response.
+ * Describe a failed request without a response, with the reason undici puts
+ * in `cause` (it reports only `fetch failed` itself). The message never holds
+ * the request URL, so the API token stays out of it.
  *
  * @param error A caught value.
- * @returns The status code, or undefined when the failure was something else.
+ * @returns An error with the reason in its message.
  */
-function retriedStatusOf(error: unknown): number | undefined {
-  return isRecord(error) && isRecord(error.cause)
-    ? numberAt(error.cause, 'statusCode')
-    : undefined;
+function networkErrorFor(error: unknown): Error {
+  return new Error(
+    error instanceof Error && error.cause !== undefined
+      ? `${error.message}: ${messageOf(error.cause)}`
+      : messageOf(error),
+  );
 }
 
 /**
@@ -83,20 +115,24 @@ function errorFor(
 }
 
 /**
- * A client for the Packagist API. Calls time out after 30 seconds and are
- * retried by undici's `RetryAgent` on throttling (429), server errors and
- * dropped connections, honouring `Retry-After`.
+ * A client for the Packagist API. A call is given up after two minutes in
+ * total. Requests go through undici's `RetryAgent`, which retries idempotent
+ * methods up to three times on throttling (429), server errors and dropped or
+ * timed out connections, honouring `Retry-After` up to 15 seconds. The update
+ * call is a POST that triggers a sync, and undici cannot safely replay a
+ * request body, so it is deliberately never retried: a retry could never
+ * trigger a second update, and a failure is reported at once.
  */
 export class PackagistClient {
   private readonly credentials: PackagistCredentials;
 
   private readonly fetcher: typeof fetch;
 
-  private readonly dispatcher: Dispatcher;
+  private readonly dispatcher: Dispatcher | undefined;
 
   /**
    * @param credentials The Packagist account to act as.
-   * @param options Test seams for the `fetch`, the agent and the back-off.
+   * @param options Test seams for the `fetch` and the agent.
    */
   constructor(
     credentials: PackagistCredentials,
@@ -104,23 +140,21 @@ export class PackagistClient {
   ) {
     this.credentials = credentials;
     this.fetcher = options.fetcher ?? fetch;
-    this.dispatcher = new RetryAgent(
-      options.agent ??
-        new Agent({
-          connect: { timeout: TIMEOUT_MS },
-          headersTimeout: TIMEOUT_MS,
-          bodyTimeout: TIMEOUT_MS,
-        }),
-      {
-        maxRetries: 3,
-        minTimeout: options.minTimeout ?? 1000,
-        maxTimeout: 15000,
-        // The only call is a POST, which undici does not retry by default.
-        // It asks Packagist to sync the repository, so repeating it only
-        // triggers another sync and is safe.
-        methods: ['POST'],
-      },
-    );
+    // A fake fetch needs no dispatcher. Otherwise wrap the global one, so
+    // process-wide proxy settings still apply. POST is not in the retried
+    // methods (undici's default), see the class documentation.
+    this.dispatcher =
+      options.fetcher === undefined || options.agent !== undefined
+        ? new RetryAgent(options.agent ?? getGlobalDispatcher(), {
+            maxRetries: 3,
+            minTimeout: 1000,
+            maxTimeout: MAX_BACKOFF_MS,
+            errorCodes: RETRYABLE_ERROR_CODES,
+            // Hand back the last response once the retries run out, so that
+            // its status is mapped like any other.
+            throwOnError: false,
+          })
+        : undefined;
   }
 
   /**
@@ -137,17 +171,8 @@ export class PackagistClient {
     url.searchParams.set('username', this.credentials.username);
     url.searchParams.set('apiToken', this.credentials.apiToken);
     const reply = await this.post(url, repositoryUrl).catch(
-      (error: unknown): Reply => {
-        const status = retriedStatusOf(error);
-        if (status === undefined) {
-          throw error;
-        }
-        return {
-          ok: false,
-          status,
-          statusText: STATUS_CODES[status] ?? '',
-          body: '',
-        };
+      (error: unknown): never => {
+        throw networkErrorFor(error);
       },
     );
     if (!reply.ok) {
@@ -167,7 +192,8 @@ export class PackagistClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repository: { url: repositoryUrl } }),
-      dispatcher: this.dispatcher,
+      signal: AbortSignal.timeout(TOTAL_TIMEOUT_MS),
+      ...(this.dispatcher ? { dispatcher: this.dispatcher } : {}),
     });
     return response.ok
       ? { ok: true }

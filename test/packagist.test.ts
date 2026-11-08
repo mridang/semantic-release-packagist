@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { MockAgent } from 'undici';
 import { PackagistClient } from '../src/packagist.js';
+import { startTunnelProxy } from './utils/proxy.js';
 import { startLoopback, type Loopback } from './utils/server.js';
 
 const CREDENTIALS = { username: 'test-user', apiToken: 'SECRET-TOKEN' };
@@ -239,5 +240,30 @@ describe('PackagistClient.updatePackage against a real server', () => {
         'The Packagist API returned an unexpected 503 status. Response: still busy',
     });
     expect(server.seen).toHaveLength(4);
+  });
+
+  it('goes through the proxy named by HTTP_PROXY', async () => {
+    const { server } = await serve((_attempt, response) => {
+      response.end('{}');
+    });
+    const proxy = await startTunnelProxy(Number(new URL(server.url).port));
+    const { http_proxy, https_proxy, ...rest } = process.env;
+    void http_proxy;
+    void https_proxy;
+    jest.replaceProperty(process, 'env', {
+      ...rest,
+      HTTP_PROXY: proxy.url,
+      NO_PROXY: '',
+    });
+    const proxied = new PackagistClient(CREDENTIALS, {
+      endpoint: 'http://packagist.invalid/api/update-package',
+    });
+    try {
+      await expect(proxied.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+      expect(proxy.tunnelled).toStrictEqual(['packagist.invalid:80']);
+      expect(server.seen).toHaveLength(1);
+    } finally {
+      await proxy.close();
+    }
   });
 });

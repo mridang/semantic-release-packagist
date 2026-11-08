@@ -1,12 +1,18 @@
 import SemanticReleaseError from '@semantic-release/error';
-import {
-  RetryAgent,
-  fetch,
-  getGlobalDispatcher,
-  type Dispatcher,
-} from 'undici';
+import { Agent, RetryAgent, request, type Dispatcher } from 'undici';
+import { STATUS_CODES } from 'node:http';
 import type { PackagistCredentials } from './plugin-config.js';
 import { messageOf } from './utils/error.js';
+
+/**
+ * The connections to Packagist. It comes from the installed `undici`: the
+ * runtime's bundled undici cannot be wrapped by `RetryAgent`.
+ */
+const AGENT = new Agent({
+  connect: { timeout: 10000 },
+  headersTimeout: 30000,
+  bodyTimeout: 30000,
+});
 
 const UPDATE_PACKAGE_URL = 'https://packagist.org/api/update-package';
 
@@ -45,8 +51,10 @@ const RETRYABLE_ERROR_CODES = [
  * tests can run without the network.
  */
 export interface PackagistClientOptions {
-  /** The `fetch` to call. Defaults to undici's. */
-  readonly fetcher?: typeof fetch;
+  /** The first back-off in milliseconds, doubled for each retry. */
+  readonly minTimeout?: number;
+  /** The update endpoint. Defaults to Packagist's. */
+  readonly endpoint?: string;
   /** The dispatcher that is wrapped in the retrying agent. */
   readonly agent?: Dispatcher;
 }
@@ -116,45 +124,43 @@ function errorFor(
 
 /**
  * A client for the Packagist API. A call is given up after two minutes in
- * total. Requests go through undici's `RetryAgent`, which retries idempotent
- * methods up to three times on throttling (429), server errors and dropped or
+ * total. Requests go through undici's `request` and `RetryAgent`, which
+ * retries up to three times on throttling (429), server errors and dropped or
  * timed out connections, honouring `Retry-After` up to 15 seconds. The update
- * call is a POST that triggers a sync, and undici cannot safely replay a
- * request body, so it is deliberately never retried: a retry could never
- * trigger a second update, and a failure is reported at once.
+ * call is a POST, and it is retried because repeating it is safe: it only
+ * asks Packagist to crawl the repository again. Once the retries run out the
+ * last response is reported.
  */
 export class PackagistClient {
   private readonly credentials: PackagistCredentials;
 
-  private readonly fetcher: typeof fetch;
+  private readonly dispatcher: Dispatcher;
 
-  private readonly dispatcher: Dispatcher | undefined;
+  private readonly endpoint: string;
 
   /**
    * @param credentials The Packagist account to act as.
-   * @param options Test seams for the `fetch` and the agent.
+   * @param options Test seams for the endpoint, the back-off and the dispatcher.
    */
   constructor(
     credentials: PackagistCredentials,
     options: PackagistClientOptions = {},
   ) {
     this.credentials = credentials;
-    this.fetcher = options.fetcher ?? fetch;
-    // A fake fetch needs no dispatcher. Otherwise wrap the global one, so
-    // process-wide proxy settings still apply. POST is not in the retried
-    // methods (undici's default), see the class documentation.
-    this.dispatcher =
-      options.fetcher === undefined || options.agent !== undefined
-        ? new RetryAgent(options.agent ?? getGlobalDispatcher(), {
-            maxRetries: 3,
-            minTimeout: 1000,
-            maxTimeout: MAX_BACKOFF_MS,
-            errorCodes: RETRYABLE_ERROR_CODES,
-            // Hand back the last response once the retries run out, so that
-            // its status is mapped like any other.
-            throwOnError: false,
-          })
-        : undefined;
+    this.endpoint = options.endpoint ?? UPDATE_PACKAGE_URL;
+    this.dispatcher = new RetryAgent(options.agent ?? AGENT, {
+      maxRetries: 3,
+      minTimeout: options.minTimeout ?? 1000,
+      maxTimeout: MAX_BACKOFF_MS,
+      errorCodes: RETRYABLE_ERROR_CODES,
+      // Hand back the last response once the retries run out, so that its
+      // status is mapped like any other.
+      throwOnError: false,
+      // The update call is a POST, which undici does not retry by default. It
+      // only asks Packagist to crawl the repository again, so repeating it is
+      // safe. The body is a string, which undici can replay.
+      methods: ['POST'],
+    });
   }
 
   /**
@@ -167,7 +173,7 @@ export class PackagistClient {
    * the API token.
    */
   async updatePackage(repositoryUrl: string): Promise<void> {
-    const url = new URL(UPDATE_PACKAGE_URL);
+    const url = new URL(this.endpoint);
     url.searchParams.set('username', this.credentials.username);
     url.searchParams.set('apiToken', this.credentials.apiToken);
     const reply = await this.post(url, repositoryUrl).catch(
@@ -188,20 +194,22 @@ export class PackagistClient {
    * @returns The status and, for a failure, the body.
    */
   private async post(url: URL, repositoryUrl: string): Promise<Reply> {
-    const response = await this.fetcher(url, {
+    const { statusCode, body } = await request(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ repository: { url: repositoryUrl } }),
       signal: AbortSignal.timeout(TOTAL_TIMEOUT_MS),
-      ...(this.dispatcher ? { dispatcher: this.dispatcher } : {}),
+      dispatcher: this.dispatcher,
     });
-    return response.ok
+    // Always read the body, so that the connection is released.
+    const text = await body.text();
+    return statusCode >= 200 && statusCode < 300
       ? { ok: true }
       : {
           ok: false,
-          status: response.status,
-          statusText: response.statusText,
-          body: await response.text(),
+          status: statusCode,
+          statusText: STATUS_CODES[statusCode] ?? '',
+          body: text,
         };
   }
 }

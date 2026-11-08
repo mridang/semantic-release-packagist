@@ -72,7 +72,11 @@ module.exports = {
 
 ## Network
 
-The request to Packagist honours the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` environment variables. When `HTTPS_PROXY` is not set, HTTPS requests use `HTTP_PROXY`. This differs from Node's built-in `fetch`, which only uses a proxy when `NODE_USE_ENV_PROXY` is set. Redirects are followed, and the request is sent with a `User-Agent` and an `Accept: application/json` header. Responses are not compressed.
+The request to Packagist honours the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` environment variables. When `HTTPS_PROXY` is not set, HTTPS requests use `HTTP_PROXY`. This differs from Node's built-in `fetch`, which only uses a proxy when `NODE_USE_ENV_PROXY` is set.
+
+The update request is retried up to three times on throttling, server errors and dropped or timed out connections, because repeating it only asks Packagist to crawl the repository again. An attempt that stalls for 30 seconds is abandoned and retried, and the whole call is given up after two minutes.
+
+Redirects are never followed. A redirect would turn the request into a different one, so a `3xx` answer is reported as an error that names the status and where the redirect pointed, without its query string. The request is sent with a `User-Agent` and an `Accept: application/json` header, and responses are not compressed.
 
 ## Known Issues
 

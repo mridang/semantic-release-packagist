@@ -108,7 +108,7 @@ describe('PackagistClient.updatePackage', () => {
     },
   );
 
-  it('reports a connection that keeps dropping without the token', async () => {
+  it('reports a connection that keeps dropping with its reason', async () => {
     const { client, packagist } = withMock();
     packagist
       .intercept(UPDATE)
@@ -119,7 +119,6 @@ describe('PackagistClient.updatePackage', () => {
       .catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).toContain('reset');
-    expect(String(failure)).not.toContain('SECRET-TOKEN');
   });
 
   it('includes the cause of a failure that has one', async () => {
@@ -342,6 +341,94 @@ describe('PackagistClient.updatePackage against a real server', () => {
       .catch((e: unknown) => e);
     expect(String(failure)).toMatch(/ECONNREFUSED/);
     expect(String(failure)).not.toContain('SECRET-TOKEN');
+  });
+
+  it('keeps the token out of every error, even when the server echoes the URL', async () => {
+    const echo = await serve((_attempt, response) => {
+      response.statusCode = 418;
+      response.end('bad request ?apiToken=SECRET-TOKEN&x');
+    });
+    const failure = await echo.client
+      .updatePackage(REPOSITORY)
+      .catch((e: unknown) => e);
+    expect(failure).toMatchObject({ code: 'EPACKAGISTAPI' });
+    expect(JSON.stringify(failure) + String(failure)).not.toContain(
+      'SECRET-TOKEN',
+    );
+    expect(JSON.stringify(failure)).toContain('[redacted]');
+  });
+
+  it('keeps the token out of a network error that quotes it', async () => {
+    const agent = new MockAgent();
+    agent.disableNetConnect();
+    agent
+      .get('https://packagist.org')
+      .intercept(UPDATE)
+      .replyWithError(
+        Object.assign(new Error('failed for ?apiToken=SECRET-TOKEN'), {
+          code: 'EOTHER',
+        }),
+      );
+    const client = new PackagistClient(CREDENTIALS, { agent });
+    const failure = await client
+      .updatePackage(REPOSITORY)
+      .catch((e: unknown) => e);
+    expect(String(failure)).toContain('[redacted]');
+    expect(String(failure)).not.toContain('SECRET-TOKEN');
+  });
+
+  it.each([
+    ['us er', 'tok/+=%?#é'],
+    ['us&er=1', 'a b&c'],
+  ])('encodes %s and %s in the query', async (username, apiToken) => {
+    const server = await startLoopback((_attempt, response) => {
+      response.end('{}');
+    });
+    started.push(server);
+    const client = new PackagistClient(
+      { username, apiToken },
+      { endpoint: server.url },
+    );
+    await client.updatePackage(REPOSITORY);
+    const sent = new URL(`http://x${server.seen[0]?.url}`).searchParams;
+    expect(Object.fromEntries(sent)).toStrictEqual({ username, apiToken });
+    expect(server.seen[0]?.url).not.toMatch(/[ #é]/);
+  });
+
+  it('reads at most a bounded part of a large error body and shortens the details', async () => {
+    const { client } = await serve((_attempt, response) => {
+      response.statusCode = 418;
+      response.end('x'.repeat(5 * 1024 * 1024));
+    });
+    const failure = await client
+      .updatePackage(REPOSITORY)
+      .catch((e: unknown) => e);
+    expect(failure).toMatchObject({
+      code: 'EPACKAGISTAPI',
+      details: expect.stringContaining('(truncated)'),
+    });
+    expect(JSON.stringify(failure).length).toBeLessThan(5000);
+  });
+
+  it('does not read the body of a success', async () => {
+    const { client } = await serve((_attempt, response) => {
+      response.end('x'.repeat(50 * 1024 * 1024));
+    });
+    const startedAt = Date.now();
+    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it('leaves credentials out of the repository URL in a not found error', async () => {
+    const { client } = await serve((_attempt, response) => {
+      response.statusCode = 404;
+      response.end('');
+    });
+    const failure = await client
+      .updatePackage('https://user:s3cret@github.com/o/r.git')
+      .catch((e: unknown) => e);
+    expect(JSON.stringify(failure)).not.toContain('s3cret');
+    expect(JSON.stringify(failure)).toContain('https://github.com/o/r.git');
   });
 
   it('goes through the proxy named by HTTP_PROXY', async () => {

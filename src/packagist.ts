@@ -9,6 +9,8 @@ import {
 import { STATUS_CODES } from 'node:http';
 import type { PackagistCredentials } from './plugin-config.js';
 import { messageOf } from './utils/error.js';
+import { redactUrl } from './utils/url.js';
+import type { Readable } from 'node:stream';
 
 const UPDATE_PACKAGE_URL = 'https://packagist.org/api/update-package';
 
@@ -40,6 +42,17 @@ const IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'];
  * How many redirects are followed, as `fetch` did before.
  */
 const MAX_REDIRECTIONS = 3;
+
+/**
+ * The most of a response that is read. The API answers with a few hundred
+ * bytes; anything larger is not worth holding in memory.
+ */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * The most of a response that is repeated in an error message.
+ */
+const MAX_DETAIL_CHARS = 2000;
 
 const USER_AGENT = 'semantic-release-packagist';
 
@@ -77,11 +90,39 @@ function connections(attemptTimeoutMs: number): Dispatcher {
     connect: { timeout: 10000 },
     headersTimeout: attemptTimeoutMs,
     bodyTimeout: attemptTimeoutMs,
-    // One notification per release: do not keep the socket (and so the
-    // process) alive afterwards.
+    // Measured on Node 22 and 24 against a server that keeps connections
+    // open: with undici's default keep-alive a script that has made the call
+    // stays alive for about 3 seconds after it. A one-shot client has no use
+    // for an idle connection.
     keepAliveTimeout: 1,
     keepAliveMaxTimeout: 1,
   });
+}
+
+/**
+ * Read the start of a response body, at most {@link MAX_BODY_BYTES}, and
+ * release the connection. A body that fails halfway yields what arrived.
+ *
+ * @param body The response body.
+ * @returns The text read so far.
+ */
+async function readCapped(body: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  const size = (): number =>
+    chunks.reduce((total, chunk) => total + chunk.length, 0);
+  body.on('error', () => undefined);
+  try {
+    for await (const chunk of body) {
+      chunks.push(Buffer.from(chunk));
+      if (size() >= MAX_BODY_BYTES) {
+        break;
+      }
+    }
+  } catch {
+    // The body only explains the failure; losing the rest must not change it.
+  }
+  body.destroy();
+  return Buffer.concat(chunks).subarray(0, MAX_BODY_BYTES).toString('utf8');
 }
 
 /**
@@ -131,6 +172,18 @@ function networkErrorFor(error: unknown): Error {
 }
 
 /**
+ * Shorten text for an error message.
+ *
+ * @param text Text of any length.
+ * @returns At most {@link MAX_DETAIL_CHARS} characters, marked when cut.
+ */
+function truncated(text: string): string {
+  return text.length > MAX_DETAIL_CHARS
+    ? `${text.slice(0, MAX_DETAIL_CHARS)}... (truncated)`
+    : text;
+}
+
+/**
  * The error that describes a failed reply.
  *
  * @param reply The failed reply.
@@ -153,13 +206,13 @@ function errorFor(
       return new SemanticReleaseError(
         'Packagist package not found.',
         'EPACKAGISTNOTFOUND',
-        `The Packagist API returned a 404 Not Found error. Please check that the package linked to the repository \`${repositoryUrl}\` exists on Packagist.`,
+        `The Packagist API returned a 404 Not Found error. Please check that the package linked to the repository \`${redactUrl(repositoryUrl)}\` exists on Packagist.`,
       );
     default:
       return new SemanticReleaseError(
         `Failed to notify Packagist: ${reply.statusText}`,
         'EPACKAGISTAPI',
-        `The Packagist API returned an unexpected ${reply.status} status. Response: ${reply.body}`,
+        `The Packagist API returned an unexpected ${reply.status} status. Response: ${truncated(reply.body)}`,
       );
   }
 }
@@ -229,12 +282,33 @@ export class PackagistClient {
     url.searchParams.set('apiToken', this.credentials.apiToken);
     const reply = await this.post(url, repositoryUrl).catch(
       (error: unknown): never => {
-        throw networkErrorFor(error);
+        const failure = networkErrorFor(error);
+        throw new Error(this.scrub(failure.message));
       },
     );
     if (!reply.ok) {
-      throw errorFor(reply, repositoryUrl);
+      throw errorFor({ ...reply, body: this.scrub(reply.body) }, repositoryUrl);
     }
+  }
+
+  /**
+   * Remove the API token from text that is about to be shown. A server may
+   * echo the request URL, which carries the token in its query.
+   *
+   * @param text Text that came from the network.
+   * @returns The text with every form of the token replaced.
+   */
+  private scrub(text: string): string {
+    const { apiToken } = this.credentials;
+    const forms = [
+      apiToken,
+      encodeURIComponent(apiToken),
+      new URLSearchParams({ t: apiToken }).toString().slice(2),
+    ];
+    return forms.reduce(
+      (out, form) => out.replaceAll(form, '[redacted]'),
+      text,
+    );
   }
 
   /**
@@ -268,8 +342,7 @@ export class PackagistClient {
       ok: false,
       status: statusCode,
       statusText: STATUS_CODES[statusCode] ?? '',
-      // The body only explains the failure; losing it must not change it.
-      body: await body.text().catch(() => ''),
+      body: await readCapped(body),
     };
   }
 }

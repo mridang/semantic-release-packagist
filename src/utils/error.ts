@@ -1,4 +1,4 @@
-import { isRecord } from './object.js';
+import { isRecord, stringAt } from './object.js';
 
 /**
  * The message of anything that was thrown. Errors with an empty message, such
@@ -24,4 +24,14 @@ export function messageOf(error: unknown): string {
   }
   const [first] = Array.isArray(error.errors) ? error.errors : [];
   return first === undefined ? String(error.name ?? 'Error') : messageOf(first);
+}
+
+/**
+ * The `code` of anything that was thrown, such as a `SemanticReleaseError`.
+ *
+ * @param error A caught value.
+ * @returns Its string `code`, or undefined when it has none.
+ */
+export function codeOf(error: unknown): string | undefined {
+  return isRecord(error) ? stringAt(error, 'code') : undefined;
 }

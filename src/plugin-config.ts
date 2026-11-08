@@ -51,7 +51,9 @@ export interface PackagistPluginConfig {
  * The Packagist account that is notified of a release.
  */
 export interface PackagistCredentials {
+  /** The Packagist user name. */
   readonly username: string;
+  /** The Packagist API token, which is a secret. */
   readonly apiToken: string;
 }
 
@@ -66,7 +68,7 @@ export interface PackagistCredentials {
  */
 export function resolveCredentials(
   config: PackagistPluginConfig,
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>>,
 ): PackagistCredentials {
   const username = config.username || env.PACKAGIST_USERNAME;
   const apiToken = config.apiToken || env.PACKAGIST_TOKEN;
@@ -116,4 +118,37 @@ export function requireRepositoryUrl(options: {
     );
   }
   return options.repositoryUrl;
+}
+
+/**
+ * The secrets that must not appear in text that is shown: the API token, from
+ * the configuration or the environment.
+ *
+ * @param config Plugin configuration from the semantic-release config.
+ * @param env Environment variables.
+ * @returns The secrets that are set.
+ */
+export function secretsOf(
+  config: PackagistPluginConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  return [config.apiToken, env.PACKAGIST_TOKEN].filter(
+    (secret): secret is string => Boolean(secret),
+  );
+}
+
+/**
+ * The environment a `composer` child process gets: the given one without the
+ * Packagist credentials, which it has no use for and which its scripts and
+ * plugins could print.
+ *
+ * @param env Environment variables.
+ * @returns A copy without the `PACKAGIST_*` variables.
+ */
+export function composerEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name]) => !name.startsWith('PACKAGIST_')),
+  );
 }

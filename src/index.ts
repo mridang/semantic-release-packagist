@@ -8,49 +8,83 @@ import type {
 } from 'semantic-release';
 import { PackagistClient } from './packagist.js';
 import {
+  composerEnv,
   cwdOf,
   requireRepositoryUrl,
   resolveCredentials,
+  secretsOf,
   type PackagistPluginConfig,
   type StepLogger,
 } from './plugin-config.js';
-import { messageOf } from './utils/error.js';
+import { codeOf, messageOf } from './utils/error.js';
 import { isRecord } from './utils/object.js';
+import { redactCredentials } from './utils/redact.js';
+import { truncate } from './utils/text.js';
 import { redactUrl } from './utils/url.js';
 
 export type { PackagistPluginConfig } from './plugin-config.js';
 
 /**
- * What went wrong when a command could not complete.
+ * The most of a command's output that is repeated in an error message.
+ */
+const MAX_OUTPUT_CHARS = 2000;
+
+/**
+ * What a command that failed said, safe to show: its standard error (or else
+ * the error's message) without secrets and cut short.
  *
  * @param error The caught value, typically from `execSync`.
- * @returns Whether the executable is missing, and the command's own output
- * (its standard error, or else the error's message).
+ * @param secrets Secrets to remove from the output.
+ * @returns The output.
  */
-function failureOf(error: unknown): {
-  readonly missing: boolean;
-  readonly output: string;
-} {
-  const record = isRecord(error) ? error : {};
-  const stderr = String(record.stderr ?? '').trim();
-  return {
-    missing: record.code === 'ENOENT' || record.status === 127,
-    output: stderr || messageOf(error),
-  };
+function outputOf(error: unknown, secrets: readonly string[]): string {
+  const stderr = isRecord(error) ? String(error.stderr ?? '').trim() : '';
+  return truncate(
+    redactCredentials(stderr || messageOf(error), secrets),
+    MAX_OUTPUT_CHARS,
+  );
 }
 
 /**
- * The error for a `composer` executable that is not installed.
+ * Run the default `composer` command. A `composer` that is not installed is
+ * reported as such; this is decided only here, where the executable is run, so
+ * that a custom command that fails with `ENOENT` is not blamed on Composer.
  *
- * @param output What the shell reported.
- * @returns The error to throw.
+ * @param args Arguments for `composer`.
+ * @param cwd Directory to run in.
+ * @param env Environment variables of the release.
+ * @param secrets Secrets to remove from the output.
+ * @throws {SemanticReleaseError} With code `ECOMPOSERNOTFOUND` if `composer`
+ * is missing; otherwise the error of the command.
  */
-function composerMissing(output: string): SemanticReleaseError {
-  return new SemanticReleaseError(
-    '`composer` could not be run.',
-    'ECOMPOSERNOTFOUND',
-    `The \`composer\` executable was not found. Install Composer, or provide a custom command in the plugin configuration. Output: ${output}`,
-  );
+function runComposer(
+  args: string,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+  secrets: readonly string[],
+): void {
+  try {
+    execSync(`composer ${args}`, {
+      cwd,
+      stdio: 'pipe',
+      env: composerEnv(env),
+    });
+  } catch (error: unknown) {
+    const stderr = isRecord(error) ? String(error.stderr ?? '') : '';
+    const missing =
+      codeOf(error) === 'ENOENT' ||
+      (isRecord(error) &&
+        error.status === 127 &&
+        /\bcomposer: (command )?not found/i.test(stderr));
+    if (missing) {
+      throw new SemanticReleaseError(
+        '`composer` could not be run.',
+        'ECOMPOSERNOTFOUND',
+        `The \`composer\` executable was not found. Install Composer, or provide a custom command in the plugin configuration. Output: ${outputOf(error, secrets)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -86,6 +120,8 @@ export async function verifyConditions(
 ): Promise<void> {
   const { logger, options } = context;
   const cwd = cwdOf(context);
+  const env = context.env ?? process.env;
+  const secrets = secretsOf(pluginConfig, env);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
@@ -98,11 +134,12 @@ export async function verifyConditions(
       log.log(
         'Executing default validation: composer validate --strict --no-check-version',
       );
-      execSync('composer validate --strict --no-check-version', {
-        cwd: currentWorkingDir,
-        stdio: 'pipe',
-        env: process.env,
-      });
+      runComposer(
+        'validate --strict --no-check-version',
+        currentWorkingDir,
+        env,
+        secrets,
+      );
       log.log('composer.json is valid (default validation).');
     };
 
@@ -114,14 +151,14 @@ export async function verifyConditions(
     try {
       await validateFn(cwd, logger);
     } catch (error: unknown) {
-      const { missing, output } = failureOf(error);
-      throw missing
-        ? composerMissing(output)
-        : new SemanticReleaseError(
-            '`composer.json` validation failed.',
-            'EINVALIDCOMPOSERJSON',
-            `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${output}`,
-          );
+      if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
+        throw error;
+      }
+      throw new SemanticReleaseError(
+        '`composer.json` validation failed.',
+        'EINVALIDCOMPOSERJSON',
+        `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${outputOf(error, secrets)}`,
+      );
     }
   } else {
     throw new SemanticReleaseError(
@@ -131,7 +168,7 @@ export async function verifyConditions(
     );
   }
 
-  resolveCredentials(pluginConfig);
+  resolveCredentials(pluginConfig, env);
 
   requireRepositoryUrl(options);
 
@@ -154,6 +191,8 @@ export async function prepare(
     logger,
   } = context;
   const cwd = cwdOf(context);
+  const env = context.env ?? process.env;
+  const secrets = secretsOf(pluginConfig, env);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
@@ -184,11 +223,7 @@ export async function prepare(
       ): void => {
         log.log('Executing default lock update: composer update --lock');
         // execSync will throw an error if the command fails
-        execSync('composer update --lock', {
-          cwd: currentWorkingDir,
-          stdio: 'pipe',
-          env: process.env,
-        });
+        runComposer('update --lock', currentWorkingDir, env, secrets);
         log.log('composer.lock updated (default command).');
       };
 
@@ -200,9 +235,8 @@ export async function prepare(
       try {
         await updateLockFn(cwd, logger);
       } catch (error: unknown) {
-        const { missing, output } = failureOf(error);
-        if (missing) {
-          throw composerMissing(output);
+        if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
+          throw error;
         }
         throw new SemanticReleaseError(
           '`composer.lock` update failed.',
@@ -210,7 +244,7 @@ export async function prepare(
           // By shape, not `instanceof`: errors from child processes can come
           // from another realm.
           isRecord(error) && typeof error.message === 'string'
-            ? error.message
+            ? outputOf(error, secrets)
             : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
         );
       }
@@ -245,9 +279,9 @@ export async function publish(
       `Notifying Packagist to update the package at ${redactUrl(repositoryUrl)}`,
     );
 
-    await new PackagistClient(resolveCredentials(pluginConfig)).updatePackage(
-      repositoryUrl,
-    );
+    await new PackagistClient(
+      resolveCredentials(pluginConfig, context.env ?? process.env),
+    ).updatePackage(repositoryUrl);
 
     logger.log('Successfully notified Packagist.');
   } catch (error: unknown) {

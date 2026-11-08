@@ -95,6 +95,91 @@ describe('verifyConditions', () => {
     });
   });
 
+  it('does not blame composer when a custom validation command fails with ENOENT', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const command = jest
+        .fn<CustomCommand>()
+        .mockRejectedValue(
+          Object.assign(new Error('no schema.json'), { code: 'ENOENT' }),
+        );
+      await expect(
+        verifyConditions(
+          { ...CONFIG, composerValidationCommand: command },
+          verifyContext({ cwd }).context,
+        ),
+      ).rejects.toMatchObject({ code: 'EINVALIDCOMPOSERJSON' });
+    });
+  });
+
+  it('does not blame composer when one of its scripts exits 127', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      await expect(
+        withComposer('echo "hook.sh: command not found" >&2; exit 127', () =>
+          verifyConditions(CONFIG, verifyContext({ cwd }).context),
+        ),
+      ).rejects.toMatchObject({ code: 'EINVALIDCOMPOSERJSON' });
+    });
+  });
+
+  it('shortens a long output of composer in verifyConditions and in prepare', async () => {
+    const noisy =
+      'i=0; while [ $i -lt 3000 ]; do printf "%1000s" x >&2; i=$((i+1)); done; exit 2';
+    await withTmp(
+      { 'composer.json': COMPOSER, 'composer.lock': '{}' },
+      async (cwd) => {
+        const verify = await withComposer(noisy, () =>
+          verifyConditions(CONFIG, verifyContext({ cwd }).context).catch(
+            (e: unknown) => e,
+          ),
+        );
+        const prepared = await withComposer(noisy, () =>
+          prepare(CONFIG, prepareContext({ cwd }).context).catch(
+            (e: unknown) => e,
+          ),
+        );
+        for (const failure of [verify, prepared]) {
+          expect(JSON.stringify(failure).length).toBeLessThan(2500);
+          expect(JSON.stringify(failure)).toContain('(truncated)');
+        }
+      },
+    );
+  });
+
+  it('keeps the Packagist credentials away from composer and out of what it prints', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const failure = await withComposer(
+        'echo "env=[$PACKAGIST_TOKEN$PACKAGIST_USERNAME] config=[config-token]" >&2; exit 2',
+        () =>
+          verifyConditions(
+            { apiToken: 'config-token' },
+            verifyContext({
+              cwd,
+              env: {
+                ...process.env,
+                PACKAGIST_TOKEN: 'env-token',
+                PACKAGIST_USERNAME: 'env-user',
+              },
+            }).context,
+          ).catch((e: unknown) => e),
+      );
+      expect(JSON.stringify(failure)).toContain('env=[]');
+      expect(JSON.stringify(failure)).toContain('config=[[redacted]]');
+    });
+  });
+
+  it('reads the credentials from the environment of the release', async () => {
+    withoutPackagistEnv();
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const { context } = verifyContext({
+        cwd,
+        env: { PACKAGIST_TOKEN: 't', PACKAGIST_USERNAME: 'u' },
+      });
+      await expect(
+        verifyConditions({ composerValidationCommand: passes }, context),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   it('puts the output of a failing custom validation in the details', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const command = jest

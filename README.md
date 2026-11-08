@@ -3,7 +3,7 @@
 A [semantic-release](https://github.com/semantic-release/semantic-release)
 plugin to automatically trigger a package update on [Packagist](https://packagist.org/).
 
-This plugin automates the final step of a PHP package release workflow. It updates the `version` in your `composer.json` file, and after `semantic-release` publishes a new Git tag, it notifies Packagist to sync the new version from your repository (the request times out after 30 seconds and is retried on throttling, server errors and dropped connections). This eliminates the need for manual updates or webhooks, ensuring your Packagist package is always up-to-date with your latest release.
+This plugin automates the final step of a PHP package release workflow. It updates the `version` in your `composer.json` file, and after `semantic-release` publishes a new Git tag, it notifies Packagist to sync the new version from your repository (the request is given up after two minutes and is not retried, so that an update is never triggered twice). This eliminates the need for manual updates or webhooks, ensuring your Packagist package is always up-to-date with your latest release.
 
 ### Why?
 

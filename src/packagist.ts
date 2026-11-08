@@ -2,6 +2,7 @@ import SemanticReleaseError from '@semantic-release/error';
 import {
   EnvHttpProxyAgent,
   RetryAgent,
+  interceptors,
   request,
   type Dispatcher,
 } from 'undici';
@@ -14,13 +15,33 @@ const UPDATE_PACKAGE_URL = 'https://packagist.org/api/update-package';
 /**
  * The longest a whole notification may take, retries and back-off included.
  */
-const TOTAL_TIMEOUT_MS = 120000;
+const DEADLINE_MS = 120000;
+
+/**
+ * The longest a single attempt may wait for the response headers or the body.
+ * An attempt that stalls is abandoned and retried.
+ */
+const ATTEMPT_TIMEOUT_MS = 30000;
 
 /**
  * The longest wait between two attempts, which also caps a `Retry-After`
- * header from Packagist.
+ * header from Packagist. It is never more than a quarter of the deadline, so
+ * the waits of three retries always fit in the time budget and no timer is
+ * left running once the call has failed.
  */
 const MAX_BACKOFF_MS = 15000;
+
+/**
+ * Methods that are safe to repeat.
+ */
+const IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'];
+
+/**
+ * How many redirects are followed, as `fetch` did before.
+ */
+const MAX_REDIRECTIONS = 3;
+
+const USER_AGENT = 'semantic-release-packagist';
 
 /**
  * Failures worth another attempt, for the methods that may be retried. Naming them replaces undici's own list, so
@@ -48,13 +69,14 @@ const RETRYABLE_ERROR_CODES = [
  * own `fetch` does under `NODE_USE_ENV_PROXY`; the variables are read when a
  * client is built.
  *
+ * @param attemptTimeoutMs How long one attempt may wait for the response.
  * @returns A dispatcher with connection and response timeouts.
  */
-function connections(): Dispatcher {
+function connections(attemptTimeoutMs: number): Dispatcher {
   return new EnvHttpProxyAgent({
     connect: { timeout: 10000 },
-    headersTimeout: 30000,
-    bodyTimeout: 30000,
+    headersTimeout: attemptTimeoutMs,
+    bodyTimeout: attemptTimeoutMs,
     // One notification per release: do not keep the socket (and so the
     // process) alive afterwards.
     keepAliveTimeout: 1,
@@ -67,6 +89,10 @@ function connections(): Dispatcher {
  * tests can run without the network.
  */
 export interface PackagistClientOptions {
+  /** How long one attempt may wait for the response, in milliseconds. */
+  readonly attemptTimeoutMs?: number;
+  /** How long the whole call may take, in milliseconds. */
+  readonly deadlineMs?: number;
   /** The first back-off in milliseconds, doubled for each retry. */
   readonly minTimeout?: number;
   /** The update endpoint. Defaults to Packagist's. */
@@ -140,9 +166,10 @@ function errorFor(
 
 /**
  * A client for the Packagist API. A call is given up after two minutes in
- * total. Requests go through undici's `request` and `RetryAgent`, which
+ * total, and an attempt that stalls for 30 seconds is abandoned and retried. Requests go through undici's `request` and `RetryAgent`, which
  * retries up to three times on throttling (429), server errors and dropped or
- * timed out connections, honouring `Retry-After` up to 15 seconds. The update
+ * timed out connections, honouring `Retry-After` up to 15 seconds, and
+ * redirects are followed up to three times. The update
  * call is a POST, and it is retried because repeating it is safe: it only
  * asks Packagist to crawl the repository again. Once the retries run out the
  * last response is reported.
@@ -154,6 +181,8 @@ export class PackagistClient {
 
   private readonly endpoint: string;
 
+  private readonly deadlineMs: number;
+
   /**
    * @param credentials The Packagist account to act as.
    * @param options Test seams for the endpoint, the back-off and the dispatcher.
@@ -164,19 +193,25 @@ export class PackagistClient {
   ) {
     this.credentials = credentials;
     this.endpoint = options.endpoint ?? UPDATE_PACKAGE_URL;
-    this.dispatcher = new RetryAgent(options.agent ?? connections(), {
-      maxRetries: 3,
-      minTimeout: options.minTimeout ?? 1000,
-      maxTimeout: MAX_BACKOFF_MS,
-      errorCodes: RETRYABLE_ERROR_CODES,
-      // Hand back the last response once the retries run out, so that its
-      // status is mapped like any other.
-      throwOnError: false,
-      // The update call is a POST, which undici does not retry by default. It
-      // only asks Packagist to crawl the repository again, so repeating it is
-      // safe. The body is a string, which undici can replay.
-      methods: ['POST'],
-    });
+    this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
+    this.dispatcher = new RetryAgent(
+      options.agent ??
+        connections(options.attemptTimeoutMs ?? ATTEMPT_TIMEOUT_MS),
+      {
+        maxRetries: 3,
+        minTimeout: options.minTimeout ?? 1000,
+        maxTimeout: Math.min(MAX_BACKOFF_MS, Math.floor(this.deadlineMs / 4)),
+        errorCodes: RETRYABLE_ERROR_CODES,
+        // Hand back the last response once the retries run out, so that its
+        // status is mapped like any other.
+        throwOnError: false,
+        // Only methods that are safe to repeat, plus the update call: it is a
+        // POST that only asks Packagist to crawl the repository again, so
+        // repeating it is safe. Its body is a string, which undici can
+        // replay.
+        methods: [...IDEMPOTENT_METHODS, 'POST'],
+      },
+    ).compose(interceptors.redirect({ maxRedirections: MAX_REDIRECTIONS }));
   }
 
   /**
@@ -212,20 +247,29 @@ export class PackagistClient {
   private async post(url: URL, repositoryUrl: string): Promise<Reply> {
     const { statusCode, body } = await request(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'user-agent': USER_AGENT,
+      },
       body: JSON.stringify({ repository: { url: repositoryUrl } }),
-      signal: AbortSignal.timeout(TOTAL_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.deadlineMs),
       dispatcher: this.dispatcher,
     });
-    // Always read the body, so that the connection is released.
-    const text = await body.text();
-    return statusCode >= 200 && statusCode < 300
-      ? { ok: true }
-      : {
-          ok: false,
-          status: statusCode,
-          statusText: STATUS_CODES[statusCode] ?? '',
-          body: text,
-        };
+    if (statusCode >= 200 && statusCode < 300) {
+      // The status is the answer. Dropping the body releases the socket, and
+      // a connection that fails after the headers cannot make undici resume
+      // the POST with a Range request.
+      body.on('error', () => undefined);
+      body.destroy();
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      status: statusCode,
+      statusText: STATUS_CODES[statusCode] ?? '',
+      // The body only explains the failure; losing it must not change it.
+      body: await body.text().catch(() => ''),
+    };
   }
 }

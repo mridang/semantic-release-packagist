@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 interface Seen {
   readonly method: string | undefined;
   readonly url: string | undefined;
+  readonly headers: IncomingMessage['headers'];
   readonly body: string;
 }
 
@@ -35,7 +36,12 @@ export async function startLoopback(
   };
   const server: Server = createServer((request, response) => {
     void read(request).then((body) => {
-      seen.push({ method: request.method, url: request.url, body });
+      seen.push({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body,
+      });
       respond(seen.length, response);
     });
   });

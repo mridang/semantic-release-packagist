@@ -152,6 +152,7 @@ describe('PackagistClient.updatePackage against a real server', () => {
    */
   async function serve(
     respond: Parameters<typeof startLoopback>[0],
+    options: ConstructorParameters<typeof PackagistClient>[1] = {},
   ): Promise<{ client: PackagistClient; server: Loopback }> {
     const server = await startLoopback(respond);
     started.push(server);
@@ -160,6 +161,7 @@ describe('PackagistClient.updatePackage against a real server', () => {
       client: new PackagistClient(CREDENTIALS, {
         endpoint: server.url,
         minTimeout: 1,
+        ...options,
       }),
     };
   }
@@ -240,6 +242,106 @@ describe('PackagistClient.updatePackage against a real server', () => {
         'The Packagist API returned an unexpected 503 status. Response: still busy',
     });
     expect(server.seen).toHaveLength(4);
+  });
+
+  it('identifies itself and asks for JSON', async () => {
+    const { client, server } = await serve((_attempt, response) => {
+      response.end('{}');
+    });
+    await client.updatePackage(REPOSITORY);
+    expect(server.seen[0]?.headers).toMatchObject({
+      'user-agent': 'semantic-release-packagist',
+      accept: 'application/json',
+      'content-type': 'application/json',
+    });
+  });
+
+  it('treats a success whose connection drops after the headers as a success', async () => {
+    const { client, server } = await serve((_attempt, response) => {
+      response.writeHead(200, { 'content-length': '100', etag: '"x"' });
+      response.write('{"status":');
+      setTimeout(() => response.socket?.destroy(), 20);
+    });
+    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+    expect(server.seen).toHaveLength(1);
+    expect(server.seen[0]?.headers.range).toBeUndefined();
+  });
+
+  it('still reports the status when the body of an error is cut short', async () => {
+    const { client } = await serve((_attempt, response) => {
+      response.writeHead(418, { 'content-length': '100', etag: '"x"' });
+      response.write('teapot');
+      setTimeout(() => response.socket?.destroy(), 20);
+    });
+    await expect(client.updatePackage(REPOSITORY)).rejects.toMatchObject({
+      code: 'EPACKAGISTAPI',
+      message: "Failed to notify Packagist: I'm a Teapot",
+    });
+  });
+
+  it('abandons an attempt that stalls and sends the request again', async () => {
+    const { client, server } = await serve(
+      (attempt, response) => {
+        if (attempt > 1) {
+          response.end('{}');
+        }
+      },
+      { attemptTimeoutMs: 50 },
+    );
+    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+    expect(server.seen).toHaveLength(2);
+  });
+
+  it('caps a long Retry-After by the time budget', async () => {
+    const { client, server } = await serve(
+      (_attempt, response) => {
+        response.statusCode = 503;
+        response.setHeader('retry-after', '60');
+        response.end('busy');
+      },
+      { deadlineMs: 400 },
+    );
+    const startedAt = Date.now();
+    await expect(client.updatePackage(REPOSITORY)).rejects.toMatchObject({
+      code: 'EPACKAGISTAPI',
+    });
+    expect(Date.now() - startedAt).toBeLessThan(1500);
+    expect(server.seen).toHaveLength(4);
+  });
+
+  it('follows a redirect and sends the body again', async () => {
+    const { client, server } = await serve((attempt, response) => {
+      if (attempt === 1) {
+        response.statusCode = 307;
+        response.setHeader('location', '/moved/update-package');
+      }
+      response.end('{}');
+    });
+    await expect(client.updatePackage(REPOSITORY)).resolves.toBeUndefined();
+    const body = JSON.stringify({ repository: { url: REPOSITORY } });
+    expect(
+      server.seen.map((s) => [s.method, s.url?.split('?')[0], s.body]),
+    ).toStrictEqual([
+      ['POST', '/api/update-package', body],
+      ['POST', '/moved/update-package', body],
+    ]);
+  });
+
+  it('reports a refused connection by its code, without the token', async () => {
+    const { server } = await serve((_attempt, response) => {
+      response.end('{}');
+    });
+    const port = Number(new URL(server.url).port);
+    await server.close();
+    const client = new PackagistClient(CREDENTIALS, {
+      endpoint: `http://localhost:${port}/api/update-package`,
+      minTimeout: 1,
+    });
+    const failure = await client
+      .updatePackage(REPOSITORY)
+      .catch((e: unknown) => e);
+    expect(String(failure)).toMatch(/ECONNREFUSED/);
+    expect(String(failure)).not.toContain('SECRET-TOKEN');
   });
 
   it('goes through the proxy named by HTTP_PROXY', async () => {

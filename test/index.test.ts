@@ -10,6 +10,7 @@ import {
   publishContext,
   verifyContext,
 } from './utils/context.js';
+import { withComposer } from './utils/composer.js';
 import { withTmp } from './utils/tmpdir.js';
 
 afterEach(() => {
@@ -53,11 +54,59 @@ describe('verifyConditions', () => {
     });
   });
 
-  it('wraps a failing default validation', async () => {
+  it('runs composer validate by default', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const { context, lines } = verifyContext({ cwd });
+      await withComposer('echo "$@" > args.txt', () =>
+        verifyConditions(CONFIG, context),
+      );
+      expect(lines).toContain('composer.json is valid (default validation).');
+      expect(await readFile(join(cwd, 'args.txt'), 'utf8')).toBe(
+        'validate --strict --no-check-version\n',
+      );
+    });
+  });
+
+  it('reports what composer said when the default validation fails', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const { context } = verifyContext({ cwd });
-      await expect(verifyConditions(CONFIG, context)).rejects.toMatchObject({
+      await expect(
+        withComposer('echo "name is invalid" >&2; exit 2', () =>
+          verifyConditions(CONFIG, context),
+        ),
+      ).rejects.toMatchObject({
         code: 'EINVALIDCOMPOSERJSON',
+        message: '`composer.json` validation failed.',
+        details: expect.stringContaining('Output: name is invalid'),
+      });
+    });
+  });
+
+  it('reports a missing composer apart from an invalid composer.json', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const { context } = verifyContext({ cwd });
+      await expect(
+        withComposer(undefined, () => verifyConditions(CONFIG, context)),
+      ).rejects.toMatchObject({
+        code: 'ECOMPOSERNOTFOUND',
+        message: '`composer` could not be run.',
+        details: expect.stringContaining('not found'),
+      });
+    });
+  });
+
+  it('puts the output of a failing custom validation in the details', async () => {
+    await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
+      const command = jest
+        .fn<CustomCommand>()
+        .mockRejectedValue(new Error('bad schema'));
+      await expect(
+        verifyConditions(
+          { ...CONFIG, composerValidationCommand: command },
+          verifyContext({ cwd }).context,
+        ),
+      ).rejects.toMatchObject({
+        details: expect.stringContaining('Output: bad schema'),
       });
     });
   });
@@ -189,15 +238,60 @@ describe('prepare', () => {
     );
   });
 
-  it('reports a failing default lock update', async () => {
+  it('updates composer.lock with composer by default', async () => {
     await withTmp(
-      { 'composer.json': COMPOSER, 'composer.lock': 'not json' },
+      { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
-        await expect(
-          prepare(CONFIG, prepareContext({ cwd }).context),
-        ).rejects.toMatchObject({ code: 'ELOCKUPDATEFAILED' });
+        const { context, lines } = prepareContext({ cwd });
+        await withComposer('echo "$@" > args.txt', () =>
+          prepare(CONFIG, context),
+        );
+        expect(lines).toContain('composer.lock updated (default command).');
+        expect(await readFile(join(cwd, 'args.txt'), 'utf8')).toBe(
+          'update --lock\n',
+        );
       },
     );
+  });
+
+  it('reports a failing default lock update with composer output', async () => {
+    await withTmp(
+      { 'composer.json': COMPOSER, 'composer.lock': '{}' },
+      async (cwd) => {
+        await expect(
+          withComposer('echo "conflict" >&2; exit 2', () =>
+            prepare(CONFIG, prepareContext({ cwd }).context),
+          ),
+        ).rejects.toMatchObject({
+          code: 'ELOCKUPDATEFAILED',
+          details: expect.stringContaining('conflict'),
+        });
+      },
+    );
+  });
+
+  it('reports a missing composer when updating the lock file', async () => {
+    await withTmp(
+      { 'composer.json': COMPOSER, 'composer.lock': '{}' },
+      async (cwd) => {
+        await expect(
+          withComposer(undefined, () =>
+            prepare(CONFIG, prepareContext({ cwd }).context),
+          ),
+        ).rejects.toMatchObject({ code: 'ECOMPOSERNOTFOUND' });
+      },
+    );
+  });
+
+  it('turns an unparsable composer.json into a coded error', async () => {
+    await withTmp({ 'composer.json': '{ nope' }, async (cwd) => {
+      await expect(
+        prepare(CONFIG, prepareContext({ cwd }).context),
+      ).rejects.toMatchObject({
+        code: 'EINVALIDCOMPOSERJSON',
+        details: expect.stringContaining('could not be parsed'),
+      });
+    });
   });
 
   it('reports a failing lock update with the error message', async () => {
@@ -264,6 +358,16 @@ describe('publish', () => {
       `Notifying Packagist to update the package at ${REPOSITORY_URL}`,
       'Successfully notified Packagist.',
     ]);
+  });
+
+  it('does not log credentials embedded in the repository URL', async () => {
+    jest.spyOn(PackagistClient.prototype, 'updatePackage').mockResolvedValue();
+    const { context, lines } = publishContext({
+      options: { repositoryUrl: 'https://user:s3cret@github.com/o/r.git' },
+    });
+    await publish(CONFIG, context);
+    expect(lines.join('\n')).not.toContain('s3cret');
+    expect(lines[0]).toContain('https://github.com/o/r.git');
   });
 
   it('keeps the coded errors of the client', async () => {

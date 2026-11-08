@@ -86,3 +86,34 @@ export function resolveCredentials(
   }
   return { username, apiToken };
 }
+
+/**
+ * The directory a step runs in: the one semantic-release was given, or else
+ * the current directory, which is its own default.
+ *
+ * @param context A semantic-release step context.
+ * @returns The working directory.
+ */
+export function cwdOf(context: { readonly cwd?: string | undefined }): string {
+  return context.cwd ?? process.cwd();
+}
+
+/**
+ * The repository URL that Packagist is told about.
+ *
+ * @param options The semantic-release options.
+ * @returns The repository URL.
+ * @throws {SemanticReleaseError} If semantic-release could not determine it.
+ */
+export function requireRepositoryUrl(options: {
+  readonly repositoryUrl?: string | undefined;
+}): string {
+  if (!options.repositoryUrl) {
+    throw new SemanticReleaseError(
+      'Repository URL could not be determined.',
+      'ENOREPOSITORYURL',
+      'The repository URL is required to notify Packagist, but it could not be found in the semantic-release context.',
+    );
+  }
+  return options.repositoryUrl;
+}

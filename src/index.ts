@@ -8,14 +8,69 @@ import type {
 } from 'semantic-release';
 import { PackagistClient } from './packagist.js';
 import {
+  cwdOf,
+  requireRepositoryUrl,
   resolveCredentials,
   type PackagistPluginConfig,
   type StepLogger,
 } from './plugin-config.js';
 import { messageOf } from './utils/error.js';
 import { isRecord } from './utils/object.js';
+import { redactUrl } from './utils/url.js';
 
 export type { PackagistPluginConfig } from './plugin-config.js';
+
+/**
+ * What went wrong when a command could not complete.
+ *
+ * @param error The caught value, typically from `execSync`.
+ * @returns Whether the executable is missing, and the command's own output
+ * (its standard error, or else the error's message).
+ */
+function failureOf(error: unknown): {
+  readonly missing: boolean;
+  readonly output: string;
+} {
+  const record = isRecord(error) ? error : {};
+  const stderr = String(record.stderr ?? '').trim();
+  return {
+    missing: record.code === 'ENOENT' || record.status === 127,
+    output: stderr || messageOf(error),
+  };
+}
+
+/**
+ * The error for a `composer` executable that is not installed.
+ *
+ * @param output What the shell reported.
+ * @returns The error to throw.
+ */
+function composerMissing(output: string): SemanticReleaseError {
+  return new SemanticReleaseError(
+    '`composer` could not be run.',
+    'ECOMPOSERNOTFOUND',
+    `The \`composer\` executable was not found. Install Composer, or provide a custom command in the plugin configuration. Output: ${output}`,
+  );
+}
+
+/**
+ * Read and parse a `composer.json`.
+ *
+ * @param path The file.
+ * @returns The parsed JSON, which is not necessarily an object.
+ * @throws {SemanticReleaseError} If the file is not valid JSON.
+ */
+function parseComposerJson(path: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(path, 'utf8'));
+  } catch (error: unknown) {
+    throw new SemanticReleaseError(
+      '`composer.json` validation failed.',
+      'EINVALIDCOMPOSERJSON',
+      `The \`composer.json\` file could not be parsed: ${messageOf(error)}`,
+    );
+  }
+}
 
 /**
  * Verifies the conditions for the plugin to run. This includes checking for
@@ -30,7 +85,7 @@ export async function verifyConditions(
   context: VerifyConditionsContext,
 ): Promise<void> {
   const { logger, options } = context;
-  const cwd = context.cwd ?? process.cwd();
+  const cwd = cwdOf(context);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
@@ -46,6 +101,7 @@ export async function verifyConditions(
       execSync('composer validate --strict --no-check-version', {
         cwd: currentWorkingDir,
         stdio: 'pipe',
+        env: process.env,
       });
       log.log('composer.json is valid (default validation).');
     };
@@ -57,12 +113,15 @@ export async function verifyConditions(
 
     try {
       await validateFn(cwd, logger);
-    } catch {
-      throw new SemanticReleaseError(
-        '`composer.json` validation failed.',
-        'EINVALIDCOMPOSERJSON',
-        'The `composer.json` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run `composer validate --strict --no-check-version` locally.',
-      );
+    } catch (error: unknown) {
+      const { missing, output } = failureOf(error);
+      throw missing
+        ? composerMissing(output)
+        : new SemanticReleaseError(
+            '`composer.json` validation failed.',
+            'EINVALIDCOMPOSERJSON',
+            `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${output}`,
+          );
     }
   } else {
     throw new SemanticReleaseError(
@@ -74,13 +133,7 @@ export async function verifyConditions(
 
   resolveCredentials(pluginConfig);
 
-  if (!options.repositoryUrl) {
-    throw new SemanticReleaseError(
-      'Repository URL could not be determined.',
-      'ENOREPOSITORYURL',
-      'The repository URL is required to notify Packagist, but it could not be found in the semantic-release context.',
-    );
-  }
+  requireRepositoryUrl(options);
 
   logger.log('Packagist conditions verified.');
 }
@@ -100,15 +153,13 @@ export async function prepare(
     nextRelease: { version },
     logger,
   } = context;
-  const cwd = context.cwd ?? process.cwd();
+  const cwd = cwdOf(context);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Writing version %s to %s', version, composerJsonPath);
 
-    const composerData: unknown = JSON.parse(
-      fs.readFileSync(composerJsonPath, 'utf8'),
-    );
+    const composerData = parseComposerJson(composerJsonPath);
     if (!isRecord(composerData)) {
       throw new SemanticReleaseError(
         '`composer.json` validation failed.',
@@ -136,6 +187,7 @@ export async function prepare(
         execSync('composer update --lock', {
           cwd: currentWorkingDir,
           stdio: 'pipe',
+          env: process.env,
         });
         log.log('composer.lock updated (default command).');
       };
@@ -148,10 +200,16 @@ export async function prepare(
       try {
         await updateLockFn(cwd, logger);
       } catch (error: unknown) {
+        const { missing, output } = failureOf(error);
+        if (missing) {
+          throw composerMissing(output);
+        }
         throw new SemanticReleaseError(
           '`composer.lock` update failed.',
           'ELOCKUPDATEFAILED',
-          error instanceof Error
+          // By shape, not `instanceof`: errors from child processes can come
+          // from another realm.
+          isRecord(error) && typeof error.message === 'string'
             ? error.message
             : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
         );
@@ -181,16 +239,11 @@ export async function publish(
   const { logger, options } = context;
 
   try {
-    const { repositoryUrl } = options;
-    if (!repositoryUrl) {
-      throw new SemanticReleaseError(
-        'Repository URL could not be determined.',
-        'ENOREPOSITORYURL',
-        'The repository URL is required to notify Packagist, but it could not be found in the semantic-release context.',
-      );
-    }
+    const repositoryUrl = requireRepositoryUrl(options);
 
-    logger.log(`Notifying Packagist to update the package at ${repositoryUrl}`);
+    logger.log(
+      `Notifying Packagist to update the package at ${redactUrl(repositoryUrl)}`,
+    );
 
     await new PackagistClient(resolveCredentials(pluginConfig)).updatePackage(
       repositoryUrl,

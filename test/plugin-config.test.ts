@@ -1,5 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { resolveCredentials } from '../src/plugin-config.js';
+import {
+  cwdOf,
+  requireRepositoryUrl,
+  resolveCredentials,
+} from '../src/plugin-config.js';
 
 describe('resolveCredentials', () => {
   it('reads the plugin configuration', () => {
@@ -54,6 +58,33 @@ describe('resolveCredentials', () => {
       expect.objectContaining({
         code: 'ENOPACKAGISTAPITOKEN',
         message: 'Packagist API token is not set.',
+      }),
+    );
+  });
+});
+
+describe('cwdOf', () => {
+  it('uses the directory of the context', () => {
+    expect(cwdOf({ cwd: '/work' })).toBe('/work');
+  });
+
+  it('falls back to the current directory', () => {
+    expect(cwdOf({})).toBe(process.cwd());
+  });
+});
+
+describe('requireRepositoryUrl', () => {
+  it('returns the repository URL', () => {
+    expect(requireRepositoryUrl({ repositoryUrl: 'https://x/y.git' })).toBe(
+      'https://x/y.git',
+    );
+  });
+
+  it('refuses a missing one', () => {
+    expect(() => requireRepositoryUrl({})).toThrow(
+      expect.objectContaining({
+        code: 'ENOREPOSITORYURL',
+        message: 'Repository URL could not be determined.',
       }),
     );
   });

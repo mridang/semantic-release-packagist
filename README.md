@@ -3,7 +3,7 @@
 A [semantic-release](https://github.com/semantic-release/semantic-release)
 plugin to automatically trigger a package update on [Packagist](https://packagist.org/).
 
-This plugin automates the final step of a PHP package release workflow. It updates the `version` in your `composer.json` file, and after `semantic-release` publishes a new Git tag, it notifies Packagist to sync the new version from your repository. This eliminates the need for manual updates or webhooks, ensuring your Packagist package is always up-to-date with your latest release.
+This plugin automates the final step of a PHP package release workflow. It updates the `version` in your `composer.json` file, and after `semantic-release` publishes a new Git tag, it notifies Packagist to sync the new version from your repository (the request is given up after two minutes and is retried on throttling, server errors and dropped connections, which is safe because repeating it only asks Packagist to crawl again). This eliminates the need for manual updates or webhooks, ensuring your Packagist package is always up-to-date with your latest release.
 
 ### Why?
 
@@ -69,6 +69,14 @@ module.exports = {
   ],
 };
 ```
+
+## Network
+
+The request to Packagist honours the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` environment variables. When `HTTPS_PROXY` is not set, HTTPS requests use `HTTP_PROXY`. This differs from Node's built-in `fetch`, which only uses a proxy when `NODE_USE_ENV_PROXY` is set.
+
+The update request is retried up to three times on throttling, server errors and dropped or timed out connections, because repeating it only asks Packagist to crawl the repository again. An attempt that stalls for 30 seconds is abandoned and retried, and the whole call is given up after two minutes.
+
+Redirects are never followed. A redirect would turn the request into a different one, so a `3xx` answer is reported as an error that names the status and where the redirect pointed, without its query string. The request is sent with a `User-Agent` and an `Accept: application/json` header, and responses are not compressed.
 
 ## Known Issues
 

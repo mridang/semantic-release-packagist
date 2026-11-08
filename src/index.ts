@@ -1,57 +1,64 @@
 import * as fs from 'fs';
-// @ts-expect-error since this is not typed
-import { Context, PluginConfig } from 'semantic-release';
-// @ts-expect-error since this is not typed
 import SemanticReleaseError from '@semantic-release/error';
-import { execSync } from 'node:child_process';
+import type {
+  PrepareContext,
+  PublishContext,
+  VerifyConditionsContext,
+} from 'semantic-release';
+import { updateLock, validate, type ComposerOptions } from './composer.js';
+import { PackagistClient } from './packagist.js';
+import {
+  cwdOf,
+  requireRepositoryUrl,
+  resolveCredentials,
+  secretsOf,
+  type PackagistPluginConfig,
+} from './plugin-config.js';
+import { messageOf } from './utils/error.js';
+import { isRecord } from './utils/object.js';
+import { redactUrl } from './utils/url.js';
+
+export type { PackagistPluginConfig } from './plugin-config.js';
 
 /**
- * The configuration for the Packagist plugin.
+ * The options for the `composer` commands of a step.
+ *
+ * @param pluginConfig The plugin configuration.
+ * @param context The semantic-release context.
+ * @returns The project that is being released and its commands.
  */
-export interface PackagistPluginConfig extends PluginConfig {
-  /**
-   * Your Packagist username.
-   * Can be provided via the PACKAGIST_USERNAME environment variable.
-   */
-  username?: string;
-  /**
-   * Your Packagist API Token.
-   * Can be provided via the PACKAGIST_TOKEN environment variable.
-   */
-  apiToken?: string;
-  /**
-   * Optional. A custom function to validate composer.json.
-   * If not provided, defaults to running `composer validate --strict --no-check-version`.
-   * The function should throw an error if validation fails.
-   * @param cwd The current working directory.
-   * @param logger The semantic-release logger.
-   * @returns {Promise<void>}
-   */
-  composerValidationCommand?: (
-    cwd: string,
-    logger: Context['logger'],
-  ) => Promise<void>;
-  /**
-   * Optional. A custom function to update composer.lock.
-   * If not provided, defaults to running `composer update --lock`.
-   * This is only run if a composer.lock file exists.
-   * The function should throw an error if the update fails.
-   * @param cwd The current working directory.
-   * @param logger The semantic-release logger.
-   * @returns {Promise<void>}
-   */
-  composerLockUpdateCommand?: (
-    cwd: string,
-    logger: Context['logger'],
-  ) => Promise<void>;
+function composerOptions(
+  pluginConfig: PackagistPluginConfig,
+  context: VerifyConditionsContext | PrepareContext,
+): ComposerOptions {
+  const env = context.env ?? process.env;
+  return {
+    cwd: cwdOf(context),
+    logger: context.logger,
+    env,
+    secrets: secretsOf(pluginConfig, env),
+    validateCommand: pluginConfig.composerValidationCommand,
+    updateLockCommand: pluginConfig.composerLockUpdateCommand,
+  };
 }
 
 /**
- * The data structure of the `composer.json` file.
+ * Read and parse a `composer.json`.
+ *
+ * @param path The file.
+ * @returns The parsed JSON, which is not necessarily an object.
+ * @throws {SemanticReleaseError} If the file is not valid JSON.
  */
-interface ComposerJson {
-  name: string;
-  version?: string;
+function parseComposerJson(path: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(path, 'utf8'));
+  } catch (error: unknown) {
+    throw new SemanticReleaseError(
+      '`composer.json` validation failed.',
+      'EINVALIDCOMPOSERJSON',
+      `The \`composer.json\` file could not be parsed: ${messageOf(error)}`,
+    );
+  }
 }
 
 /**
@@ -64,45 +71,17 @@ interface ComposerJson {
  */
 export async function verifyConditions(
   pluginConfig: PackagistPluginConfig,
-  context: Context,
+  context: VerifyConditionsContext,
 ): Promise<void> {
-  const { logger, options, cwd } = context;
+  const { logger, options } = context;
+  const cwd = cwdOf(context);
+  const env = context.env ?? process.env;
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Validating composer.json...');
 
-    const defaultValidateCommandSync = (
-      currentWorkingDir: string,
-      log: Context['logger'],
-    ): void => {
-      log.log(
-        'Executing default validation: composer validate --strict --no-check-version',
-      );
-      execSync('composer validate --strict --no-check-version', {
-        cwd: currentWorkingDir,
-        stdio: 'pipe',
-      });
-      log.log('composer.json is valid (default validation).');
-    };
-
-    const validateFn: (
-      cwd: string,
-      logger: Context['logger'],
-    ) => Promise<void> =
-      pluginConfig.composerValidationCommand ||
-      (async (currentWorkingDir, log) =>
-        defaultValidateCommandSync(currentWorkingDir, log));
-
-    try {
-      await validateFn(cwd, logger);
-    } catch {
-      throw new SemanticReleaseError(
-        '`composer.json` validation failed.',
-        'EINVALIDCOMPOSERJSON',
-        'The `composer.json` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run `composer validate --strict --no-check-version` locally.',
-      );
-    }
+    await validate(composerOptions(pluginConfig, context));
   } else {
     throw new SemanticReleaseError(
       'composer.json not found.',
@@ -111,32 +90,9 @@ export async function verifyConditions(
     );
   }
 
-  const username = pluginConfig.username || process.env.PACKAGIST_USERNAME;
-  const apiToken = pluginConfig.apiToken || process.env.PACKAGIST_TOKEN;
+  resolveCredentials(pluginConfig, env);
 
-  if (!username) {
-    throw new SemanticReleaseError(
-      'Packagist username is not set.',
-      'ENOPACKAGISTUSERNAME',
-      'Please provide your Packagist username in the plugin configuration or as a PACKAGIST_USERNAME environment variable.',
-    );
-  }
-
-  if (!apiToken) {
-    throw new SemanticReleaseError(
-      'Packagist API token is not set.',
-      'ENOPACKAGISTAPITOKEN',
-      'Please provide your Packagist API token in the plugin configuration or as a PACKAGIST_TOKEN environment variable.',
-    );
-  }
-
-  if (!options.repositoryUrl) {
-    throw new SemanticReleaseError(
-      'Repository URL could not be determined.',
-      'ENOREPOSITORYURL',
-      'The repository URL is required to notify Packagist, but it could not be found in the semantic-release context.',
-    );
-  }
+  requireRepositoryUrl(options);
 
   logger.log('Packagist conditions verified.');
 }
@@ -150,22 +106,30 @@ export async function verifyConditions(
  */
 export async function prepare(
   pluginConfig: PackagistPluginConfig,
-  context: Context,
+  context: PrepareContext,
 ): Promise<void> {
   const {
-    cwd,
     nextRelease: { version },
     logger,
   } = context;
+  const cwd = cwdOf(context);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Writing version %s to %s', version, composerJsonPath);
 
-    const composerJsonContent = fs.readFileSync(composerJsonPath, 'utf8');
-    const composerData: ComposerJson = JSON.parse(composerJsonContent);
-    composerData.version = version;
-    fs.writeFileSync(composerJsonPath, JSON.stringify(composerData, null, 4));
+    const composerData = parseComposerJson(composerJsonPath);
+    if (!isRecord(composerData)) {
+      throw new SemanticReleaseError(
+        '`composer.json` validation failed.',
+        'EINVALIDCOMPOSERJSON',
+        'The `composer.json` file must contain a JSON object.',
+      );
+    }
+    fs.writeFileSync(
+      composerJsonPath,
+      JSON.stringify({ ...composerData, version }, null, 4),
+    );
 
     logger.log('Prepared composer.json');
 
@@ -173,38 +137,7 @@ export async function prepare(
     if (fs.existsSync(composerLockPath)) {
       logger.log('Updating composer.lock...');
 
-      const defaultLockUpdateCommandSync = (
-        currentWorkingDir: string,
-        log: Context['logger'],
-      ): void => {
-        log.log('Executing default lock update: composer update --lock');
-        // execSync will throw an error if the command fails
-        execSync('composer update --lock', {
-          cwd: currentWorkingDir,
-          stdio: 'pipe',
-        });
-        log.log('composer.lock updated (default command).');
-      };
-
-      const updateLockFn: (
-        cwd: string,
-        logger: Context['logger'],
-      ) => Promise<void> =
-        pluginConfig.composerLockUpdateCommand ||
-        (async (currentWorkingDir, log) =>
-          defaultLockUpdateCommandSync(currentWorkingDir, log));
-
-      try {
-        await updateLockFn(cwd, logger);
-      } catch (error: unknown) {
-        throw new SemanticReleaseError(
-          '`composer.lock` update failed.',
-          'ELOCKUPDATEFAILED',
-          error instanceof Error
-            ? error.message
-            : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
-        );
-      }
+      await updateLock(composerOptions(pluginConfig, context));
     } else {
       logger.log('composer.lock not found, skipping lock file update.');
     }
@@ -225,69 +158,36 @@ export async function prepare(
  */
 export async function publish(
   pluginConfig: PackagistPluginConfig,
-  context: Context,
+  context: PublishContext,
 ): Promise<void> {
   const { logger, options } = context;
 
   try {
-    const username = pluginConfig.username || process.env.PACKAGIST_USERNAME;
-    const apiToken = pluginConfig.apiToken || process.env.PACKAGIST_TOKEN;
-    const { repositoryUrl } = options;
+    const repositoryUrl = requireRepositoryUrl(options);
 
-    logger.log(`Notifying Packagist to update the package at ${repositoryUrl}`);
-
-    const response: Response = await fetch(
-      `https://packagist.org/api/update-package?username=${username}&apiToken=${apiToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repository: { url: repositoryUrl } }),
-      },
+    logger.log(
+      `Notifying Packagist to update the package at ${redactUrl(repositoryUrl)}`,
     );
 
-    if (!response.ok) {
-      const responseBody = await response.text();
-      switch (response.status) {
-        case 401:
-        case 403:
-          // noinspection ExceptionCaughtLocallyJS
-          throw new SemanticReleaseError(
-            'Invalid Packagist credentials.',
-            'EINVALIDPACKAGISTTOKEN',
-            `The Packagist API returned a ${response.status} status. Please check that the configured \`username\` and \`apiToken\` are correct and have permissions to update the package.`,
-          );
-        case 404:
-          // noinspection ExceptionCaughtLocallyJS
-          throw new SemanticReleaseError(
-            'Packagist package not found.',
-            'EPACKAGISTNOTFOUND',
-            `The Packagist API returned a 404 Not Found error. Please check that the package linked to the repository \`${repositoryUrl}\` exists on Packagist.`,
-          );
-        default:
-          // noinspection ExceptionCaughtLocallyJS
-          throw new SemanticReleaseError(
-            `Failed to notify Packagist: ${response.statusText}`,
-            'EPACKAGISTAPI',
-            `The Packagist API returned an unexpected ${response.status} status. Response: ${responseBody}`,
-          );
-      }
-    }
+    await new PackagistClient(
+      resolveCredentials(pluginConfig, context.env ?? process.env),
+    ).updatePackage(repositoryUrl);
 
     logger.log('Successfully notified Packagist.');
   } catch (error: unknown) {
     if (error instanceof SemanticReleaseError) {
       throw error;
-    } else {
-      const err = error as Error;
-      logger.error(
-        'An unexpected error occurred while publishing to Packagist: %s',
-        err.message,
-      );
-      throw new SemanticReleaseError(
-        'An unexpected error occurred.',
-        'EUNEXPECTED',
-        err.message,
-      );
     }
+    logger.error(
+      'An unexpected error occurred while publishing to Packagist: %s',
+      messageOf(error),
+    );
+    throw new SemanticReleaseError(
+      'An unexpected error occurred.',
+      'EUNEXPECTED',
+      messageOf(error),
+    );
   }
 }
+
+export default { verifyConditions, prepare, publish } as const;

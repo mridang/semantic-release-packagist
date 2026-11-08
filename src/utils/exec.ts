@@ -16,7 +16,11 @@ export interface ExecOptions {
   /** Working directory of the command. */
   readonly cwd?: string;
   /** Variables added to the current environment for the command. */
-  readonly env?: Readonly<Record<string, string>>;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Text written to the command's standard input, which is then closed. */
+  readonly input?: string;
+  /** Milliseconds after which the command is killed (code `ETIMEDOUT`). */
+  readonly timeout?: number;
   /** Largest stdout or stderr captured, in bytes. */
   readonly maxBuffer?: number;
 }
@@ -37,14 +41,19 @@ export type Runner = (
  * Credentials are removed from the message and the output.
  */
 export class ExecError extends Error {
+  /** The system error code, such as `ENOENT` or `ETIMEDOUT`. */
   readonly code: string | undefined;
 
+  /** The exit code of a command that ran and failed. */
   readonly status: number | undefined;
 
+  /** The signal that killed the command. */
   readonly signal: string | undefined;
 
+  /** What the command wrote to stdout, with credentials removed. */
   readonly stdout: string;
 
+  /** What the command wrote to stderr, with credentials removed. */
   readonly stderr: string;
 
   /**
@@ -74,24 +83,27 @@ export class ExecError extends Error {
 /**
  * Run a program without a shell. Arguments are passed as an array, so nothing
  * in them is interpreted; the environment is the current one plus
- * `options.env`.
+ * `options.env`. The standard input is always closed, after `options.input`
+ * has been written, so a command never waits for input.
  *
  * @param file Program to run.
  * @param args Its arguments.
- * @param options Working directory, extra environment and output limit.
+ * @param options Working directory, extra environment, input, timeout and
+ *   output limit.
  * @returns The standard output as a string.
- * @throws ExecError when the program cannot be started or fails; its message
- *   and output have credentials redacted.
+ * @throws ExecError when the program cannot be started, fails or times out;
+ *   its message and output have credentials redacted.
  */
 export const run: Runner = (file, args, options = {}) =>
   new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       file,
       [...args],
       {
         cwd: options.cwd,
         env: { ...process.env, ...options.env },
         maxBuffer: options.maxBuffer ?? MAX_BUFFER,
+        timeout: options.timeout,
         encoding: 'utf8',
       },
       (error, stdout, stderr) => {
@@ -101,9 +113,13 @@ export const run: Runner = (file, args, options = {}) =>
         }
         const text = (value: unknown, fallback: string): string =>
           redactCredentials(typeof value === 'string' ? value : fallback);
+        const timedOut =
+          isRecord(error) &&
+          error.killed === true &&
+          options.timeout !== undefined;
         reject(
           new ExecError(redactCredentials(messageOf(error)), {
-            code: codeOf(error),
+            code: timedOut ? 'ETIMEDOUT' : codeOf(error),
             status:
               statusOf(error) ??
               (isRecord(error) && typeof error.code === 'number'
@@ -116,4 +132,7 @@ export const run: Runner = (file, args, options = {}) =>
         );
       },
     );
+    // The command may exit before it has read its input (EPIPE).
+    child.stdin?.on('error', () => undefined);
+    child.stdin?.end(options.input);
   });

@@ -18,9 +18,9 @@ export type CustomCommand = (cwd: string, logger: StepLogger) => Promise<void>;
 const MAX_OUTPUT_CHARS = 2000;
 
 /**
- * Options for building a {@link ComposerClient}.
+ * The project and the commands that {@link validate} and {@link updateLock} act on.
  */
-export interface ComposerClientOptions {
+export interface ComposerOptions {
   /** The directory that holds `composer.json`. */
   readonly cwd: string;
   /** The logger of the semantic-release step. */
@@ -38,127 +38,115 @@ export interface ComposerClientOptions {
 }
 
 /**
- * A handle on the `composer` command for one project. The default commands run
- * `composer` without a shell, in the project directory, with an environment
- * that has no `PACKAGIST_*` values, and what they print is scrubbed of secrets
- * and shortened before it enters an error. A custom command from the
- * configuration replaces a default one and is run as it is.
+ * What a failed command said, safe to show: its standard error (or else the
+ * error's message) without secrets and cut short.
+ *
+ * @param error The caught value.
+ * @param secrets Secrets to remove from the output.
+ * @returns The output.
  */
-export class ComposerClient {
-  private readonly options: ComposerClientOptions;
+function outputOf(error: unknown, secrets: readonly string[]): string {
+  const stderr = isRecord(error) ? String(error.stderr ?? '').trim() : '';
+  return truncate(
+    redactSecrets(stderr || messageOf(error), secrets),
+    MAX_OUTPUT_CHARS,
+  );
+}
 
-  private readonly runner: Runner;
-
-  /**
-   * @param options The project, the release environment and the commands.
-   */
-  constructor(options: ComposerClientOptions) {
-    this.options = options;
-    this.runner = options.run ?? run;
-  }
-
-  /**
-   * Check that `composer.json` is valid, with `composer validate --strict
-   * --no-check-version` unless a custom command was configured.
-   *
-   * @throws {SemanticReleaseError} `EINVALIDCOMPOSERJSON` if the check fails,
-   * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
-   * could not be started because `composer` is not installed.
-   */
-  async validate(): Promise<void> {
-    const { cwd, logger, validateCommand } = this.options;
-    try {
-      if (validateCommand) {
-        await validateCommand(cwd, logger);
-        return;
-      }
-      logger.log(
-        'Executing default validation: composer validate --strict --no-check-version',
-      );
-      await this.composer(['validate', '--strict', '--no-check-version']);
-      logger.log('composer.json is valid (default validation).');
-    } catch (error: unknown) {
-      if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
-        throw error;
-      }
+/**
+ * Run the default `composer` command: without a shell, in the project
+ * directory, with an environment that has no `PACKAGIST_*` values.
+ *
+ * @param args Arguments for `composer`.
+ * @param options The project and the release environment.
+ * @throws {SemanticReleaseError} `ECOMPOSERNOTFOUND` if `composer` is not
+ * installed; otherwise the error of the failed command.
+ */
+async function composer(
+  args: readonly string[],
+  options: ComposerOptions,
+): Promise<void> {
+  const { cwd, env, secrets } = options;
+  await (options.run ?? run)('composer', args, {
+    cwd,
+    env: withoutPackagist(env),
+  }).catch((error: unknown): never => {
+    if (codeOf(error) === 'ENOENT') {
       throw new SemanticReleaseError(
-        '`composer.json` validation failed.',
-        'EINVALIDCOMPOSERJSON',
-        `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${this.outputOf(error)}`,
+        '`composer` could not be run.',
+        'ECOMPOSERNOTFOUND',
+        `The \`composer\` executable was not found. Install Composer, or provide a custom command in the plugin configuration. Output: ${outputOf(error, secrets)}`,
       );
     }
-  }
+    throw error;
+  });
+}
 
-  /**
-   * Bring `composer.lock` up to date with `composer update --lock` unless a
-   * custom command was configured.
-   *
-   * @throws {SemanticReleaseError} `ELOCKUPDATEFAILED` if the update fails,
-   * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
-   * could not be started because `composer` is not installed.
-   */
-  async updateLock(): Promise<void> {
-    const { cwd, logger, updateLockCommand } = this.options;
-    try {
-      if (updateLockCommand) {
-        await updateLockCommand(cwd, logger);
-        return;
-      }
-      logger.log('Executing default lock update: composer update --lock');
-      await this.composer(['update', '--lock']);
-      logger.log('composer.lock updated (default command).');
-    } catch (error: unknown) {
-      if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
-        throw error;
-      }
-      throw new SemanticReleaseError(
-        '`composer.lock` update failed.',
-        'ELOCKUPDATEFAILED',
-        // By shape, not `instanceof`: errors from child processes can come
-        // from another realm.
-        isRecord(error) && typeof error.message === 'string'
-          ? this.outputOf(error)
-          : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
-      );
+/**
+ * Check that `composer.json` is valid, with `composer validate --strict
+ * --no-check-version` unless a custom command was configured. A custom
+ * command is run as it is.
+ *
+ * @param options The project, the release environment and the commands.
+ * @throws {SemanticReleaseError} `EINVALIDCOMPOSERJSON` if the check fails,
+ * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
+ * could not be started because `composer` is not installed.
+ */
+export async function validate(options: ComposerOptions): Promise<void> {
+  const { cwd, logger, validateCommand } = options;
+  try {
+    if (validateCommand) {
+      await validateCommand(cwd, logger);
+      return;
     }
-  }
-
-  /**
-   * Run `composer` with the given arguments.
-   *
-   * @param args Arguments for `composer`.
-   * @throws {SemanticReleaseError} `ECOMPOSERNOTFOUND` if `composer` is not
-   * installed; otherwise the error of the failed command.
-   */
-  private async composer(args: readonly string[]): Promise<void> {
-    const { cwd, env } = this.options;
-    await this.runner('composer', args, {
-      cwd,
-      env: withoutPackagist(env),
-    }).catch((error: unknown): never => {
-      if (codeOf(error) === 'ENOENT') {
-        throw new SemanticReleaseError(
-          '`composer` could not be run.',
-          'ECOMPOSERNOTFOUND',
-          `The \`composer\` executable was not found. Install Composer, or provide a custom command in the plugin configuration. Output: ${this.outputOf(error)}`,
-        );
-      }
+    logger.log(
+      'Executing default validation: composer validate --strict --no-check-version',
+    );
+    await composer(['validate', '--strict', '--no-check-version'], options);
+    logger.log('composer.json is valid (default validation).');
+  } catch (error: unknown) {
+    if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
       throw error;
-    });
+    }
+    throw new SemanticReleaseError(
+      '`composer.json` validation failed.',
+      'EINVALIDCOMPOSERJSON',
+      `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${outputOf(error, options.secrets)}`,
+    );
   }
+}
 
-  /**
-   * What a failed command said, safe to show: its standard error (or else the
-   * error's message) without secrets and cut short.
-   *
-   * @param error The caught value.
-   * @returns The output.
-   */
-  private outputOf(error: unknown): string {
-    const stderr = isRecord(error) ? String(error.stderr ?? '').trim() : '';
-    return truncate(
-      redactSecrets(stderr || messageOf(error), this.options.secrets),
-      MAX_OUTPUT_CHARS,
+/**
+ * Bring `composer.lock` up to date with `composer update --lock` unless a
+ * custom command was configured. A custom command is run as it is.
+ *
+ * @param options The project, the release environment and the commands.
+ * @throws {SemanticReleaseError} `ELOCKUPDATEFAILED` if the update fails,
+ * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
+ * could not be started because `composer` is not installed.
+ */
+export async function updateLock(options: ComposerOptions): Promise<void> {
+  const { cwd, logger, updateLockCommand } = options;
+  try {
+    if (updateLockCommand) {
+      await updateLockCommand(cwd, logger);
+      return;
+    }
+    logger.log('Executing default lock update: composer update --lock');
+    await composer(['update', '--lock'], options);
+    logger.log('composer.lock updated (default command).');
+  } catch (error: unknown) {
+    if (codeOf(error) === 'ECOMPOSERNOTFOUND') {
+      throw error;
+    }
+    throw new SemanticReleaseError(
+      '`composer.lock` update failed.',
+      'ELOCKUPDATEFAILED',
+      // By shape, not `instanceof`: errors from child processes can come
+      // from another realm.
+      isRecord(error) && typeof error.message === 'string'
+        ? outputOf(error, options.secrets)
+        : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
     );
   }
 }

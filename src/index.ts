@@ -5,7 +5,7 @@ import type {
   PublishContext,
   VerifyConditionsContext,
 } from 'semantic-release';
-import { ComposerClient } from './composer.js';
+import { updateLock, validate, type ComposerOptions } from './composer.js';
 import { PackagistClient } from './packagist.js';
 import {
   cwdOf,
@@ -21,25 +21,25 @@ import { redactUrl } from './utils/url.js';
 export type { PackagistPluginConfig } from './plugin-config.js';
 
 /**
- * The Composer client for a step.
+ * The options for the `composer` commands of a step.
  *
  * @param pluginConfig The plugin configuration.
  * @param context The semantic-release context.
- * @returns A client for the project that is being released.
+ * @returns The project that is being released and its commands.
  */
-function composer(
+function composerOptions(
   pluginConfig: PackagistPluginConfig,
   context: VerifyConditionsContext | PrepareContext,
-): ComposerClient {
+): ComposerOptions {
   const env = context.env ?? process.env;
-  return new ComposerClient({
+  return {
     cwd: cwdOf(context),
     logger: context.logger,
     env,
     secrets: secretsOf(pluginConfig, env),
     validateCommand: pluginConfig.composerValidationCommand,
     updateLockCommand: pluginConfig.composerLockUpdateCommand,
-  });
+  };
 }
 
 /**
@@ -81,7 +81,7 @@ export async function verifyConditions(
   if (fs.existsSync(composerJsonPath)) {
     logger.log('Validating composer.json...');
 
-    await composer(pluginConfig, context).validate();
+    await validate(composerOptions(pluginConfig, context));
   } else {
     throw new SemanticReleaseError(
       'composer.json not found.',
@@ -137,7 +137,7 @@ export async function prepare(
     if (fs.existsSync(composerLockPath)) {
       logger.log('Updating composer.lock...');
 
-      await composer(pluginConfig, context).updateLock();
+      await updateLock(composerOptions(pluginConfig, context));
     } else {
       logger.log('composer.lock not found, skipping lock file update.');
     }

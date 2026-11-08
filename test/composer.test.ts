@@ -1,28 +1,26 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { ComposerClient, type CustomCommand } from '../src/composer.js';
+import {
+  updateLock,
+  validate,
+  type ComposerOptions,
+  type CustomCommand,
+} from '../src/composer.js';
 import { ExecError, type Runner } from '../src/utils/exec.js';
 import { recordingLogger } from './utils/logger.js';
 
 const CWD = '/work/project';
 
 /**
- * A client whose runner is a fake.
+ * Options for the module, with a fake runner.
  */
 function make(
   run: Runner,
-  options: Partial<ConstructorParameters<typeof ComposerClient>[0]> = {},
-): { client: ComposerClient; lines: string[] } {
+  options: Partial<ComposerOptions> = {},
+): { options: ComposerOptions; lines: string[] } {
   const { logger, lines } = recordingLogger();
   return {
     lines,
-    client: new ComposerClient({
-      cwd: CWD,
-      logger,
-      env: {},
-      secrets: [],
-      run,
-      ...options,
-    }),
+    options: { cwd: CWD, logger, env: {}, secrets: [], run, ...options },
   };
 }
 
@@ -39,11 +37,11 @@ function failed(stderr: string, code?: string): ExecError {
   });
 }
 
-describe('ComposerClient.validate', () => {
+describe('validate', () => {
   it('runs composer validate in the project without a shell', async () => {
     const run = jest.fn<Runner>().mockResolvedValue('');
-    const { client, lines } = make(run);
-    await client.validate();
+    const { options, lines } = make(run);
+    await validate(options);
     expect(run).toHaveBeenCalledWith(
       'composer',
       ['validate', '--strict', '--no-check-version'],
@@ -57,7 +55,7 @@ describe('ComposerClient.validate', () => {
 
   it('gives composer the release environment with the Packagist variables emptied', async () => {
     const run = jest.fn<Runner>().mockResolvedValue('');
-    const { client } = make(run, {
+    const { options } = make(run, {
       env: {
         PATH: '/bin',
         UNSET: undefined,
@@ -65,7 +63,7 @@ describe('ComposerClient.validate', () => {
         PACKAGIST_OTHER: 'x',
       },
     });
-    await client.validate();
+    await validate(options);
     expect(run.mock.calls[0]?.[2]?.env).toMatchObject({
       PATH: '/bin',
       PACKAGIST_USERNAME: '',
@@ -78,8 +76,8 @@ describe('ComposerClient.validate', () => {
   it('runs a custom command instead, as it is', async () => {
     const run = jest.fn<Runner>();
     const custom = jest.fn<CustomCommand>().mockResolvedValue();
-    const { client, lines } = make(run, { validateCommand: custom });
-    await client.validate();
+    const { options, lines } = make(run, { validateCommand: custom });
+    await validate(options);
     expect(custom).toHaveBeenCalledWith(CWD, expect.anything());
     expect(run).not.toHaveBeenCalled();
     expect(lines).toStrictEqual([]);
@@ -89,8 +87,8 @@ describe('ComposerClient.validate', () => {
     const run = jest
       .fn<Runner>()
       .mockRejectedValue(failed(`bad ${'x'.repeat(5000)} tok3n`));
-    const { client } = make(run, { secrets: ['tok3n'] });
-    const failure = await client.validate().catch((e: unknown) => e);
+    const { options } = make(run, { secrets: ['tok3n'] });
+    const failure = await validate(options).catch((e: unknown) => e);
     expect(failure).toMatchObject({
       code: 'EINVALIDCOMPOSERJSON',
       message: '`composer.json` validation failed.',
@@ -102,16 +100,16 @@ describe('ComposerClient.validate', () => {
 
   it('scrubs secrets in what composer said', async () => {
     const run = jest.fn<Runner>().mockRejectedValue(failed('token is tok3n'));
-    const { client } = make(run, { secrets: ['tok3n'] });
-    await expect(client.validate()).rejects.toMatchObject({
+    const { options } = make(run, { secrets: ['tok3n'] });
+    await expect(validate(options)).rejects.toMatchObject({
       details: expect.stringContaining('token is [redacted]'),
     });
   });
 
   it('reports a missing composer apart from an invalid composer.json', async () => {
     const run = jest.fn<Runner>().mockRejectedValue(failed('', 'ENOENT'));
-    const { client } = make(run);
-    await expect(client.validate()).rejects.toMatchObject({
+    const { options } = make(run);
+    await expect(validate(options)).rejects.toMatchObject({
       code: 'ECOMPOSERNOTFOUND',
       message: '`composer` could not be run.',
     });
@@ -123,8 +121,8 @@ describe('ComposerClient.validate', () => {
       .mockRejectedValue(
         Object.assign(new Error('no schema'), { code: 'ENOENT' }),
       );
-    const { client } = make(jest.fn<Runner>(), { validateCommand: custom });
-    await expect(client.validate()).rejects.toMatchObject({
+    const { options } = make(jest.fn<Runner>(), { validateCommand: custom });
+    await expect(validate(options)).rejects.toMatchObject({
       code: 'EINVALIDCOMPOSERJSON',
       details: expect.stringContaining('Output: no schema'),
     });
@@ -140,18 +138,18 @@ describe('ComposerClient.validate', () => {
         stderr: 'hook.sh: command not found',
       }),
     );
-    const { client } = make(run);
-    await expect(client.validate()).rejects.toMatchObject({
+    const { options } = make(run);
+    await expect(validate(options)).rejects.toMatchObject({
       code: 'EINVALIDCOMPOSERJSON',
     });
   });
 });
 
-describe('ComposerClient.updateLock', () => {
+describe('updateLock', () => {
   it('runs composer update --lock in the project without a shell', async () => {
     const run = jest.fn<Runner>().mockResolvedValue('');
-    const { client, lines } = make(run);
-    await client.updateLock();
+    const { options, lines } = make(run);
+    await updateLock(options);
     expect(run).toHaveBeenCalledWith(
       'composer',
       ['update', '--lock'],
@@ -166,16 +164,16 @@ describe('ComposerClient.updateLock', () => {
   it('runs a custom command instead, as it is', async () => {
     const run = jest.fn<Runner>();
     const custom = jest.fn<CustomCommand>().mockResolvedValue();
-    const { client } = make(run, { updateLockCommand: custom });
-    await client.updateLock();
+    const { options } = make(run, { updateLockCommand: custom });
+    await updateLock(options);
     expect(custom).toHaveBeenCalledWith(CWD, expect.anything());
     expect(run).not.toHaveBeenCalled();
   });
 
   it('reports what composer said', async () => {
     const run = jest.fn<Runner>().mockRejectedValue(failed('conflict'));
-    const { client } = make(run);
-    await expect(client.updateLock()).rejects.toMatchObject({
+    const { options } = make(run);
+    await expect(updateLock(options)).rejects.toMatchObject({
       code: 'ELOCKUPDATEFAILED',
       message: '`composer.lock` update failed.',
       details: 'conflict',
@@ -184,8 +182,8 @@ describe('ComposerClient.updateLock', () => {
 
   it('gives a hint when a custom command throws something that is not an error', async () => {
     const custom = jest.fn<CustomCommand>().mockRejectedValue('nope');
-    const { client } = make(jest.fn<Runner>(), { updateLockCommand: custom });
-    await expect(client.updateLock()).rejects.toMatchObject({
+    const { options } = make(jest.fn<Runner>(), { updateLockCommand: custom });
+    await expect(updateLock(options)).rejects.toMatchObject({
       code: 'ELOCKUPDATEFAILED',
       details: expect.stringContaining('composer update --lock'),
     });
@@ -193,8 +191,8 @@ describe('ComposerClient.updateLock', () => {
 
   it('reports a missing composer', async () => {
     const run = jest.fn<Runner>().mockRejectedValue(failed('', 'ENOENT'));
-    const { client } = make(run);
-    await expect(client.updateLock()).rejects.toMatchObject({
+    const { options } = make(run);
+    await expect(updateLock(options)).rejects.toMatchObject({
       code: 'ECOMPOSERNOTFOUND',
     });
   });
@@ -203,8 +201,8 @@ describe('ComposerClient.updateLock', () => {
     const custom = jest
       .fn<CustomCommand>()
       .mockRejectedValue(Object.assign(new Error('x'), { code: 'ENOENT' }));
-    const { client } = make(jest.fn<Runner>(), { updateLockCommand: custom });
-    await expect(client.updateLock()).rejects.toMatchObject({
+    const { options } = make(jest.fn<Runner>(), { updateLockCommand: custom });
+    await expect(updateLock(options)).rejects.toMatchObject({
       code: 'ELOCKUPDATEFAILED',
     });
   });

@@ -70,6 +70,10 @@ module.exports = {
 };
 ```
 
+## Network
+
+The request to Packagist honours the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` environment variables. When `HTTPS_PROXY` is not set, HTTPS requests use `HTTP_PROXY`. This differs from Node's built-in `fetch`, which only uses a proxy when `NODE_USE_ENV_PROXY` is set. Redirects are followed, and the request is sent with a `User-Agent` and an `Accept: application/json` header. Responses are not compressed.
+
 ## Known Issues
 
 - None.

@@ -136,19 +136,3 @@ export function secretsOf(
     (secret): secret is string => Boolean(secret),
   );
 }
-
-/**
- * The environment a `composer` child process gets: the given one without the
- * Packagist credentials, which it has no use for and which its scripts and
- * plugins could print.
- *
- * @param env Environment variables.
- * @returns A copy without the `PACKAGIST_*` variables.
- */
-export function composerEnv(
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string | undefined> {
-  return Object.fromEntries(
-    Object.entries(env).filter(([name]) => !name.startsWith('PACKAGIST_')),
-  );
-}

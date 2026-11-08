@@ -9,7 +9,7 @@ import { STATUS_CODES } from 'node:http';
 import type { PackagistCredentials } from './plugin-config.js';
 import { messageOf } from './utils/error.js';
 import { isRecord } from './utils/object.js';
-import { redactCredentials } from './utils/redact.js';
+import { redactSecrets } from './utils/redact.js';
 import { truncate } from './utils/text.js';
 import { redactUrl, userInfoSecrets } from './utils/url.js';
 
@@ -290,12 +290,12 @@ export class PackagistClient {
     const reply = await this.post(url, repositoryUrl).catch(
       (error: unknown): never => {
         const failure = networkErrorFor(error, url.host);
-        throw new Error(redactCredentials(failure.message, secrets));
+        throw new Error(redactSecrets(failure.message, secrets));
       },
     );
     if (!reply.ok) {
       throw errorFor(
-        { ...reply, body: redactCredentials(reply.body, secrets) },
+        { ...reply, body: redactSecrets(reply.body, secrets) },
         repositoryUrl,
         this.endpoint,
       );

@@ -27,11 +27,34 @@ export function messageOf(error: unknown): string {
 }
 
 /**
- * The `code` of anything that was thrown, such as a `SemanticReleaseError`.
+ * The `code` of anything that was thrown, such as a `SemanticReleaseError`
+ * or a Node system error (`ENOENT`).
  *
  * @param error A caught value.
  * @returns Its string `code`, or undefined when it has none.
  */
 export function codeOf(error: unknown): string | undefined {
   return isRecord(error) ? stringAt(error, 'code') : undefined;
+}
+
+/**
+ * The exit `status` of anything that was thrown by a child process.
+ *
+ * @param error A caught value.
+ * @returns Its numeric `status`, or undefined when it has none.
+ */
+export function statusOf(error: unknown): number | undefined {
+  return isRecord(error) && typeof error.status === 'number'
+    ? error.status
+    : undefined;
+}
+
+/**
+ * The terminating `signal` of anything that was thrown by a child process.
+ *
+ * @param error A caught value.
+ * @returns Its string `signal`, or undefined when it has none.
+ */
+export function signalOf(error: unknown): string | undefined {
+  return isRecord(error) ? stringAt(error, 'signal') : undefined;
 }

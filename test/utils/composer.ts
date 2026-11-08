@@ -1,5 +1,5 @@
 import { chmod, writeFile } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { jest } from '@jest/globals';
 import { withTmp } from './tmpdir.js';
 
@@ -25,7 +25,7 @@ export async function withComposer<T>(
     }
     jest.replaceProperty(process, 'env', {
       ...process.env,
-      PATH: `${bin}${delimiter}/usr/bin${delimiter}/bin`,
+      PATH: bin,
     });
     return fn();
   });

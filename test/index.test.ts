@@ -146,12 +146,12 @@ describe('verifyConditions', () => {
       async (cwd) => {
         const verify = await withComposer(noisy, () =>
           verifyConditions(CONFIG, verifyContext({ cwd }).context).catch(
-            (e: unknown) => e,
+            (error: unknown) => error,
           ),
         );
         const prepared = await withComposer(noisy, () =>
           prepare(CONFIG, prepareContext({ cwd }).context).catch(
-            (e: unknown) => e,
+            (error: unknown) => error,
           ),
         );
         for (const failure of [verify, prepared]) {
@@ -177,7 +177,7 @@ describe('verifyConditions', () => {
                 PACKAGIST_USERNAME: 'env-user',
               },
             }).context,
-          ).catch((e: unknown) => e),
+          ).catch((error: unknown) => error),
       );
       expect(JSON.stringify(failure)).toContain('env=[]');
       expect(JSON.stringify(failure)).toContain('config=[[redacted]]');
@@ -473,9 +473,8 @@ describe('publish', () => {
   });
 
   it('keeps the coded errors of the client', async () => {
-    const { default: SemanticReleaseError } = await import(
-      '@semantic-release/error'
-    );
+    const { default: SemanticReleaseError } =
+      await import('@semantic-release/error');
     const failure = new SemanticReleaseError(
       'Invalid Packagist credentials.',
       'EINVALIDPACKAGISTTOKEN',

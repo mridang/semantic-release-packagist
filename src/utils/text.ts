@@ -1,9 +1,8 @@
 /**
  * Shorten foreign text (a response body, a command's output) before it goes
  * into an error message.
- *
- * @param text Text of any length.
- * @param max The most characters to keep.
+ * @param text - Text of any length.
+ * @param max - The most characters to keep.
  * @returns The text, or its first `max` characters followed by a marker.
  */
 export function truncate(text: string, max: number): string {

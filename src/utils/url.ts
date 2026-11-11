@@ -3,8 +3,7 @@
  * `http(s)` URL, where `https://token@host/repo.git` is a common form. The
  * user name of any other URL, such as the `git` of `ssh://git@host/repo.git`,
  * is not secret.
- *
- * @param url A URL, which may not be an absolute one.
+ * @param url - A URL, which may not be an absolute one.
  * @returns The secrets, which are empty when there is no user info.
  */
 export function userInfoSecrets(url: string): readonly string[] {
@@ -21,8 +20,7 @@ export function userInfoSecrets(url: string): readonly string[] {
  * a repository URL such as `https://user:token@host/repo.git` is not logged.
  * A value that is not an absolute URL, such as an scp-style `git@host:repo`,
  * or that has no secret in it is returned unchanged.
- *
- * @param url A URL that is about to be logged or put in an error.
+ * @param url - A URL that is about to be logged or put in an error.
  * @returns The URL without secrets.
  */
 export function redactUrl(url: string): string {

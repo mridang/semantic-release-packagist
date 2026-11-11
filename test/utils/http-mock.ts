@@ -20,9 +20,7 @@ export interface Call {
 }
 
 type Responder =
-  | Reply
-  | readonly Reply[]
-  | ((call: Call) => Omit<Reply, 'delayMs'>);
+  Reply | readonly Reply[] | ((call: Call) => Omit<Reply, 'delayMs'>);
 
 let agent: MockAgent | undefined;
 
@@ -30,7 +28,6 @@ let agent: MockAgent | undefined;
  * Put a fresh `MockAgent` in place, so no test reaches the network. Each call
  * replaces the previous agent. An unmocked request fails with a
  * `MockNotMatchedError`.
- *
  * @returns The agent to register interceptors on.
  */
 function install(): MockAgent {
@@ -52,7 +49,6 @@ beforeEach(() => {
 /**
  * The agent set up by the last `mockHttp` or `failHttp`, to pass to the code
  * under test as its connections.
- *
  * @returns The current mock agent, or a new one when nothing was mocked.
  */
 export function mockAgent(): MockAgent {
@@ -61,8 +57,7 @@ export function mockAgent(): MockAgent {
 
 /**
  * Turn the headers undici hands to a dispatcher into a plain record.
- *
- * @param headers Either an object or a flat list of name and value pairs.
+ * @param headers - Either an object or a flat list of name and value pairs.
  * @returns The headers keyed by their original names.
  */
 function headerRecord(headers: unknown): Record<string, string> {
@@ -72,18 +67,17 @@ function headerRecord(headers: unknown): Record<string, string> {
           i % 2 === 0 ? [[String(headers[i]), String(headers[i + 1])]] : [],
         ),
       )
-    : isRecord(headers)
+    : (isRecord(headers)
       ? Object.fromEntries(
           Object.entries(headers).map(([k, v]) => [k, String(v)]),
         )
-      : {};
+      : {});
 }
 
 /**
  * Decode a request body the way the tests want to inspect it.
- *
- * @param body The body undici hands to the dispatcher.
- * @param headers The request headers, to tell a form from JSON.
+ * @param body - The body undici hands to the dispatcher.
+ * @param headers - The request headers, to tell a form from JSON.
  * @returns A form as an object, JSON parsed, bytes as they are.
  */
 function decodeBody(body: unknown, headers: Record<string, string>): unknown {
@@ -91,12 +85,12 @@ function decodeBody(body: unknown, headers: Record<string, string>): unknown {
     ([k]) => k.toLowerCase() === 'content-type',
   )?.[1];
   return typeof body === 'string'
-    ? type?.includes('x-www-form-urlencoded')
+    ? (type?.includes('x-www-form-urlencoded')
       ? Object.fromEntries(new URLSearchParams(body))
-      : (JSON.parse(body) as unknown)
-    : body instanceof Uint8Array
+      : (JSON.parse(body) as unknown))
+    : (body instanceof Uint8Array
       ? body
-      : undefined;
+      : undefined);
 }
 
 /**
@@ -104,8 +98,7 @@ function decodeBody(body: unknown, headers: Record<string, string>): unknown {
  * `"METHOD url"`, ignoring any query string. A list of replies is served in
  * order and the last one repeats; a request with no route fails the test
  * loudly. Pass `mockAgent()` to the code under test.
- *
- * @param routes Responses keyed by method and URL.
+ * @param routes - Responses keyed by method and URL.
  * @returns Every request that was made, in order.
  */
 export function mockHttp(routes: Record<string, Responder>): Call[] {
@@ -122,7 +115,7 @@ export function mockHttp(routes: Record<string, Responder>): Call[] {
         .get(url.origin)
         .intercept({
           method,
-          path: (actual: string) => actual.split('?')[0] === path,
+          path: (actual: string) => actual.split('?', 1)[0] === path,
         })
         .reply((options) => {
           const headers = headerRecord(options.headers);
@@ -155,9 +148,8 @@ export function mockHttp(routes: Record<string, Responder>): Call[] {
 
 /**
  * Make every request to `origin` fail with a connection error.
- *
- * @param origin The scheme and host to break.
- * @param error What the socket reports.
+ * @param origin - The scheme and host to break.
+ * @param error - What the socket reports.
  * @returns A function giving the number of attempts made so far.
  */
 export function failHttp(origin: string, error: Error): () => number {

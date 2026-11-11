@@ -40,9 +40,8 @@ export interface ComposerOptions {
 /**
  * What a failed command said, safe to show: its standard error (or else the
  * error's message) without secrets and cut short.
- *
- * @param error The caught value.
- * @param secrets Secrets to remove from the output.
+ * @param error - The caught value.
+ * @param secrets - Secrets to remove from the output.
  * @returns The output.
  */
 function outputOf(error: unknown, secrets: readonly string[]): string {
@@ -56,9 +55,8 @@ function outputOf(error: unknown, secrets: readonly string[]): string {
 /**
  * Run the default `composer` command: without a shell, in the project
  * directory, with an environment that has no `PACKAGIST_*` values.
- *
- * @param args Arguments for `composer`.
- * @param options The project and the release environment.
+ * @param args - Arguments for `composer`.
+ * @param options - The project and the release environment.
  * @throws {SemanticReleaseError} `ECOMPOSERNOTFOUND` if `composer` is not
  * installed; otherwise the error of the failed command.
  */
@@ -86,8 +84,7 @@ async function composer(
  * Check that `composer.json` is valid, with `composer validate --strict
  * --no-check-version` unless a custom command was configured. A custom
  * command is run as it is.
- *
- * @param options The project, the release environment and the commands.
+ * @param options - The project, the release environment and the commands.
  * @throws {SemanticReleaseError} `EINVALIDCOMPOSERJSON` if the check fails,
  * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
  * could not be started because `composer` is not installed.
@@ -119,8 +116,7 @@ export async function validate(options: ComposerOptions): Promise<void> {
 /**
  * Bring `composer.lock` up to date with `composer update --lock` unless a
  * custom command was configured. A custom command is run as it is.
- *
- * @param options The project, the release environment and the commands.
+ * @param options - The project, the release environment and the commands.
  * @throws {SemanticReleaseError} `ELOCKUPDATEFAILED` if the update fails,
  * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
  * could not be started because `composer` is not installed.
@@ -157,8 +153,7 @@ export async function updateLock(options: ComposerOptions): Promise<void> {
  * use for the Packagist credentials and could print them. The runner adds
  * these values to the current environment, so a value is emptied rather than
  * left out.
- *
- * @param env The environment of the release.
+ * @param env - The environment of the release.
  * @returns The variables to give `composer`.
  */
 function withoutPackagist(

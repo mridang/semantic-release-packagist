@@ -5,9 +5,8 @@ import { dirname, join } from 'node:path';
 /**
  * Create a temporary directory populated with files, run a function in it and
  * remove it afterwards.
- *
- * @param files Map of relative path to file contents.
- * @param fn Function receiving the directory path.
+ * @param files - Map of relative path to file contents.
+ * @param fn - Function receiving the directory path.
  * @returns Whatever the function returns.
  */
 export async function withTmp<T>(

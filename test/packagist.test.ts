@@ -126,7 +126,7 @@ describe('request', () => {
       'https://x.test/a?token=secret',
       { headers: { Authorization: 'Bearer secret' } },
       via({ retries: 1 }),
-    ).catch((e: unknown) => e);
+    ).catch((error_: unknown) => error_);
     expect(String(error)).toBe(
       'Error: Network error calling x.test: socket hang up',
     );
@@ -160,7 +160,7 @@ describe('request', () => {
     const saved = { ...process.env };
     process.env.HTTPS_PROXY = 'http://user:PW-SECRET@bad host:3128';
     try {
-      const error = await request(URL_A, {}).catch((e: unknown) => e);
+      const error = await request(URL_A, {}).catch((error_: unknown) => error_);
       expect(error).toMatchObject({ code: 'EPROXY' });
       const shown = [
         String(error),
@@ -269,7 +269,7 @@ describe('request over a real socket', () => {
     );
     expect(result).toMatchObject({ status: 200, body: { ok: 1 } });
     expect(seen).toHaveLength(2);
-  }, 15000);
+  }, 15_000);
 
   it('gives up with one request per attempt when every attempt stalls', async () => {
     const { url, seen } = await serve(() => undefined);
@@ -281,7 +281,7 @@ describe('request over a real socket', () => {
       ),
     ).rejects.toThrow(/Network error calling 127\.0\.0\.1/);
     expect(seen).toHaveLength(2);
-  }, 15000);
+  }, 15_000);
 
   it('stops at the deadline, which does not include a back-off when nothing is retried', async () => {
     const { url } = await serve(() => undefined);
@@ -290,7 +290,7 @@ describe('request over a real socket', () => {
       /aborted due to timeout/,
     );
     expect(Date.now() - started).toBeLessThan(2000);
-  }, 15000);
+  }, 15_000);
 
   it('sends exactly retries + 1 whole requests when the body is always cut short', async () => {
     const { url, seen } = await serve((_req, res) => {
@@ -306,7 +306,7 @@ describe('request over a real socket', () => {
       ),
     ).rejects.toThrow(/other side closed/);
     expect(seen).toEqual(['POST /a', 'POST /a', 'POST /a']);
-  }, 15000);
+  }, 15_000);
 
   it('sends the whole request again, never a Range resume, when the body is cut once', async () => {
     const { url, seen } = await serve((_req, res) => {
@@ -374,7 +374,7 @@ describe('request over a real socket', () => {
     const error = await request(
       `http://localhost:${server.port}/a?token=SECRET`,
       { headers: { Authorization: 'Bearer SECRET' } },
-    ).catch((e: unknown) => e);
+    ).catch((error_: unknown) => error_);
     expect(String(error)).toContain('ECONNREFUSED');
     expect(String(error)).not.toContain('SECRET');
   });
@@ -427,7 +427,7 @@ describe('request over a real socket', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(proxy.connects()).toBe(connects);
     },
-    15000,
+    15_000,
   );
 });
 
@@ -527,7 +527,7 @@ describe('PackagistClient.updatePackage', () => {
       details:
         'The Packagist API returned an unexpected 500 status. Response: ',
     });
-  }, 15000);
+  }, 15_000);
 
   it('retries a server error and then succeeds', async () => {
     const calls = mockHttp({ [UPDATE]: [{ status: 503 }, { status: 200 }] });
@@ -544,7 +544,7 @@ describe('PackagistClient.updatePackage', () => {
         'The Packagist API returned an unexpected 429 status. Response: slow',
     });
     expect(calls).toHaveLength(4);
-  }, 15000);
+  }, 15_000);
 
   it('does not retry a rejection of the credentials', async () => {
     const calls = mockHttp({ [UPDATE]: { status: 401 } });
@@ -606,7 +606,7 @@ describe('PackagistClient.updatePackage', () => {
       'Error: Network error calling packagist.org: reset',
     );
     expect(attempts()).toBe(4);
-  }, 15000);
+  }, 15_000);
 
   it.each([
     ['as it is', 'tok/+= é'],
@@ -670,7 +670,7 @@ describe('PackagistClient.updatePackage', () => {
 describe('request and idle connections', () => {
   it('closes its connection at once, even when the server advertises a long keep-alive', async () => {
     const server = createServer((_req, res) => res.end('{}'));
-    server.keepAliveTimeout = 60000;
+    server.keepAliveTimeout = 60_000;
     await new Promise<void>((resolve) =>
       server.listen(0, '127.0.0.1', resolve),
     );

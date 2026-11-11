@@ -88,7 +88,7 @@ describe('validate', () => {
       .fn<Runner>()
       .mockRejectedValue(failed(`bad ${'x'.repeat(5000)} tok3n`));
     const { options } = make(run, { secrets: ['tok3n'] });
-    const failure = await validate(options).catch((e: unknown) => e);
+    const failure = await validate(options).catch((error: unknown) => error);
     expect(failure).toMatchObject({
       code: 'EINVALIDCOMPOSERJSON',
       message: '`composer.json` validation failed.',

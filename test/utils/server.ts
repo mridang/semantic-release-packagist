@@ -16,8 +16,7 @@ export interface LoopbackServer {
 
 /**
  * Stop a server, dropping the connections it still holds.
- *
- * @param server The server to stop.
+ * @param server - The server to stop.
  * @returns Resolves once it has stopped.
  */
 function stop(server: Server): Promise<void> {
@@ -29,8 +28,7 @@ function stop(server: Server): Promise<void> {
 
 /**
  * Start an HTTP server on a free loopback port.
- *
- * @param handler Answers each request.
+ * @param handler - Answers each request.
  * @returns Where it listens, what it has seen and a way to stop it.
  */
 export async function listen(
@@ -63,8 +61,7 @@ export interface FaultyProxy {
 
 /**
  * Start a proxy that accepts a `CONNECT` and then misbehaves.
- *
- * @param mode `reset` drops the connection at once; `stall` never answers.
+ * @param mode - `reset` drops the connection at once; `stall` never answers.
  * @returns The proxy's URL, a counter of the tunnels asked for and a way to
  * stop it.
  */

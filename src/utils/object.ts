@@ -1,7 +1,6 @@
 /**
  * Whether a value is a plain object: not null and not an array.
- *
- * @param value Value to check.
+ * @param value - Value to check.
  * @returns True for objects with string keys.
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -11,9 +10,8 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Read an own string property of an untrusted object; inherited members are
  * ignored.
- *
- * @param record The object.
- * @param key Property name.
+ * @param record - The object.
+ * @param key - Property name.
  * @returns The value when it is a string, otherwise undefined.
  */
 export function stringAt(
@@ -26,9 +24,8 @@ export function stringAt(
 
 /**
  * Read an own number property of an untrusted object.
- *
- * @param record The object.
- * @param key Property name.
+ * @param record - The object.
+ * @param key - Property name.
  * @returns The value when it is a number, otherwise undefined.
  */
 export function numberAt(

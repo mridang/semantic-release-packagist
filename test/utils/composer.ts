@@ -7,10 +7,9 @@ import { withTmp } from './tmpdir.js';
  * Run a function with a stand-in for `composer` as the only thing on the
  * `PATH`, so the default commands run without Composer installed. The plugin
  * hands `process.env` to the command, which is what makes this work.
- *
- * @param script Shell script that becomes `composer`, or undefined for no
+ * @param script - Shell script that becomes `composer`, or undefined for no
  * `composer` at all.
- * @param fn Function to run.
+ * @param fn - Function to run.
  * @returns Whatever the function returns.
  */
 export async function withComposer<T>(

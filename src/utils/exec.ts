@@ -57,8 +57,8 @@ export class ExecError extends Error {
   readonly stderr: string;
 
   /**
-   * @param message Description of the failure, already free of credentials.
-   * @param details The code, exit status, signal and captured output.
+   * @param message - Description of the failure, already free of credentials.
+   * @param details - The code, exit status, signal and captured output.
    */
   constructor(
     message: string,
@@ -85,11 +85,10 @@ export class ExecError extends Error {
  * in them is interpreted; the environment is the current one plus
  * `options.env`. The standard input is always closed, after `options.input`
  * has been written, so a command never waits for input.
- *
- * @param file Program to run.
- * @param args Its arguments.
- * @param options Working directory, extra environment, input, timeout and
- *   output limit.
+ * @param file - Program to run.
+ * @param args - Its arguments.
+ * @param options - Working directory, extra environment, input, timeout and
+ * output limit.
  * @returns The standard output as a string.
  * @throws ExecError when the program cannot be started, fails or times out;
  *   its message and output have credentials redacted.

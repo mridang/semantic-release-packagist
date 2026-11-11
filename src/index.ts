@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import SemanticReleaseError from '@semantic-release/error';
 import type {
   PrepareContext,
@@ -22,9 +22,8 @@ export type { PackagistPluginConfig } from './plugin-config.js';
 
 /**
  * The options for the `composer` commands of a step.
- *
- * @param pluginConfig The plugin configuration.
- * @param context The semantic-release context.
+ * @param pluginConfig - The plugin configuration.
+ * @param context - The semantic-release context.
  * @returns The project that is being released and its commands.
  */
 function composerOptions(
@@ -44,8 +43,7 @@ function composerOptions(
 
 /**
  * Read and parse a `composer.json`.
- *
- * @param path The file.
+ * @param path - The file.
  * @returns The parsed JSON, which is not necessarily an object.
  * @throws {SemanticReleaseError} If the file is not valid JSON.
  */
@@ -65,8 +63,8 @@ function parseComposerJson(path: string): unknown {
  * Verifies the conditions for the plugin to run. This includes checking for
  * `composer.json` and running `composer validate`, and ensuring Packagist
  * credentials and the repository URL are available.
- * @param pluginConfig The plugin configuration.
- * @param context The semantic-release context.
+ * @param pluginConfig - The plugin configuration.
+ * @param context - The semantic-release context.
  * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
  */
 export async function verifyConditions(
@@ -100,8 +98,8 @@ export async function verifyConditions(
 /**
  * Prepares the release by updating the `version` field in `composer.json`
  * and optionally updating `composer.lock`.
- * @param pluginConfig The plugin configuration.
- * @param context The semantic-release context.
+ * @param pluginConfig - The plugin configuration.
+ * @param context - The semantic-release context.
  * @throws {SemanticReleaseError} If composer.json is not found or if lock file update fails.
  */
 export async function prepare(
@@ -152,8 +150,8 @@ export async function prepare(
 
 /**
  * Publishes the package to Packagist by triggering a repository sync.
- * @param pluginConfig The plugin configuration.
- * @param context The semantic-release context.
+ * @param pluginConfig - The plugin configuration.
+ * @param context - The semantic-release context.
  * @throws {SemanticReleaseError} If the API call to Packagist fails.
  */
 export async function publish(

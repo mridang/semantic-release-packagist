@@ -8,21 +8,20 @@
  * `access_token=`, `password=` and `private_token=` query values,
  * `Authorization:` header lines, `Bearer` tokens, and bare GitHub and GitLab
  * tokens (`ghp_`, `github_pat_`, `glpat-`).
- *
- * @param text Text that may contain credentials.
+ * @param text - Text that may contain credentials.
  * @returns The text with every credential replaced by `***`.
  */
 export function redactCredentials(text: string): string {
   return text
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:\S*@/gi, '$1***@')
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+@/gi, '$1***@')
-    .replace(
+    .replaceAll(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:\S*@/gi, '$1***@')
+    .replaceAll(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+@/gi, '$1***@')
+    .replaceAll(
       /([?&](?:access_token|token|password|private_token)=)[^&\s#'"]+/gi,
       '$1***',
     )
-    .replace(/\b((?:proxy-)?authorization)\s*:[^\r\n]*/gi, '$1: ***')
-    .replace(/\bbearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ***')
-    .replace(
+    .replaceAll(/\b((?:proxy-)?authorization)\s*:[^\r\n]*/gi, '$1: ***')
+    .replaceAll(/\bbearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ***')
+    .replaceAll(
       /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,})/g,
       '***',
     );
@@ -36,9 +35,8 @@ export function redactCredentials(text: string): string {
  * written as `\/` (as PHP's `json_encode` does). Any other re-encoding is not
  * recognised, so never put a secret in text that is shown if it can be left
  * out.
- *
- * @param text Text that came from the network or from a child process.
- * @param secrets The secrets to remove. Empty ones are ignored.
+ * @param text - Text that came from the network or from a child process.
+ * @param secrets - The secrets to remove. Empty ones are ignored.
  * @returns The text with every form of every secret replaced.
  */
 export function redactSecrets(
@@ -51,7 +49,9 @@ export function redactSecrets(
       secret,
       encodeURIComponent(secret),
       new URLSearchParams({ s: secret }).toString().slice(2),
-      JSON.stringify(secret).slice(1, -1).replaceAll('/', '\\/'),
+      JSON.stringify(secret)
+        .slice(1, -1)
+        .replaceAll('/', String.raw`\/`),
     ])
     .toSorted((a, b) => b.length - a.length);
   if (forms.length === 0) {
@@ -59,7 +59,9 @@ export function redactSecrets(
   }
   // One pass, so that a secret cannot match inside the marker of another.
   const pattern = new RegExp(
-    forms.map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+    forms
+      .map((form) => form.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .join('|'),
     'g',
   );
   return text.replace(pattern, '[redacted]');

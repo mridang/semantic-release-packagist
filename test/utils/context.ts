@@ -11,8 +11,7 @@ type Parts = Record<string, unknown>;
 
 /**
  * Build the pieces every step context shares.
- *
- * @param extra Properties to add or override.
+ * @param extra - Properties to add or override.
  * @returns The context pieces and the lines logged through them.
  */
 function parts(extra: Parts): { context: Parts; lines: string[] } {
@@ -30,8 +29,7 @@ function parts(extra: Parts): { context: Parts; lines: string[] } {
 
 /**
  * A `verifyConditions` context.
- *
- * @param extra Properties to add or override.
+ * @param extra - Properties to add or override.
  * @returns The context and the lines logged through it.
  */
 export function verifyContext(extra: Parts = {}): {
@@ -47,8 +45,7 @@ export function verifyContext(extra: Parts = {}): {
 
 /**
  * A `prepare` context.
- *
- * @param extra Properties to add or override.
+ * @param extra - Properties to add or override.
  * @returns The context and the lines logged through it.
  */
 export function prepareContext(extra: Parts = {}): {
@@ -61,8 +58,7 @@ export function prepareContext(extra: Parts = {}): {
 
 /**
  * A `publish` context.
- *
- * @param extra Properties to add or override.
+ * @param extra - Properties to add or override.
  * @returns The context and the lines logged through it.
  */
 export function publishContext(extra: Parts = {}): {

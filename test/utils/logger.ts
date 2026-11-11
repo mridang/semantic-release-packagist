@@ -1,6 +1,5 @@
 /**
  * A semantic-release style logger that records everything written to it.
- *
  * @returns The logger and the lines it has received.
  */
 export function recordingLogger(): {

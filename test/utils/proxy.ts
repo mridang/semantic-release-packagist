@@ -10,8 +10,7 @@ export interface TunnelProxy {
 /**
  * Start a plain HTTP proxy on 127.0.0.1 that accepts `CONNECT`, records the
  * host it was asked for and tunnels to a local server instead.
- *
- * @param targetPort The local port every tunnel leads to.
+ * @param targetPort - The local port every tunnel leads to.
  * @returns The proxy's URL, the hosts it was asked for and a way to stop it.
  */
 export async function startTunnelProxy(

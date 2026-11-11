@@ -48,7 +48,7 @@ describe('redactSecrets', () => {
     ['as it is', SECRET],
     ['percent-encoded', encodeURIComponent(SECRET)],
     ['form-encoded', new URLSearchParams({ s: SECRET }).toString().slice(2)],
-    ['JSON-escaped', 'a\\/b+c=d e'],
+    ['JSON-escaped', String.raw`a\/b+c=d e`],
   ])('removes the secret %s', (_form, echoed) => {
     expect(redactSecrets(`bad ?token=${echoed}&x`, [SECRET])).toBe(
       'bad ?token=[redacted]&x',

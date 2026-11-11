@@ -406,7 +406,6 @@ export interface RequestOptions {
   readonly followRedirects?: boolean;
 }
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Perform a request and decode a JSON (or fall back to text) response.
@@ -561,7 +560,6 @@ export async function request(
     await own?.destroy().catch(() => undefined);
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 /**
  * The endpoint that makes Packagist crawl a repository again.
@@ -668,7 +666,6 @@ export class PackagistClient {
     this.agent = options.agent;
   }
 
-  /* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
   /**
    * Ask Packagist to re-read a repository so that the new release shows up.
@@ -713,5 +710,4 @@ export class PackagistClient {
     const scrubbed = redactSecrets(textOf(result.body), secrets);
     throw errorFor({ ...result, body: scrubbed }, repositoryUrl);
   }
-  /* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 }

@@ -64,7 +64,6 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Read and parse a `composer.json`.
@@ -86,9 +85,7 @@ async function parseComposerJson(path: string): Promise<unknown> {
     );
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Verifies the conditions for the plugin to run. This includes checking for
@@ -128,9 +125,7 @@ export async function verifyConditions(
 
   logger.log('Packagist conditions verified.');
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Prepares the release by updating the `version` field in `composer.json`
@@ -187,9 +182,7 @@ export async function prepare(
     );
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Publishes the package to Packagist by triggering a repository sync.
@@ -233,6 +226,5 @@ export async function publish(
     );
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 export default { verifyConditions, prepare, publish } as const;

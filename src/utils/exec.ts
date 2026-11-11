@@ -102,7 +102,6 @@ export class ExecError extends Error {
   }
 }
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Run a program without a shell. Arguments are passed as an array, so nothing
@@ -153,4 +152,3 @@ export const run: Runner = async (file, args, options = {}) => {
     });
   }
 };
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */

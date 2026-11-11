@@ -89,7 +89,6 @@ async function composer(
   });
 }
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Check that `composer.json` is valid, with `composer validate --strict
@@ -128,9 +127,7 @@ export async function validate(options: ComposerOptions): Promise<void> {
     );
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
-/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Bring `composer.lock` up to date with `composer update --lock` unless a
@@ -170,7 +167,6 @@ export async function updateLock(options: ComposerOptions): Promise<void> {
     );
   }
 }
-/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 /**
  * The environment for `composer`: the release's own, with every `PACKAGIST_*`

@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the URL user-info secret helpers.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 // noinspection ES6PreferShortImport
 import { redactUrl, userInfoSecrets } from '../../src/utils/url.js';

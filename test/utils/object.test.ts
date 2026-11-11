@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the type guards and safe readers of untrusted values.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 // noinspection ES6PreferShortImport
 import { isRecord, numberAt, stringAt } from '../../src/utils/object.js';

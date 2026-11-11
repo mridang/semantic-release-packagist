@@ -1,3 +1,8 @@
+/**
+ * Runs the `composer` commands (validate and update the lock file) for the
+ * project being released, or the custom commands that replace them.
+ * @file
+ */
 import SemanticReleaseError from '@semantic-release/error';
 import { codeOf, messageOf } from './utils/error.js';
 import { run, type ExecOptions, type Runner } from './utils/exec.js';
@@ -30,9 +35,9 @@ export interface ComposerOptions {
   /** Secrets to remove from any output of `composer` that is shown. */
   readonly secrets: readonly string[];
   /** Replaces the default `composer validate`. */
-  readonly validateCommand?: CustomCommand | undefined;
+  readonly validateCommand?: CustomCommand;
   /** Replaces the default `composer update --lock`. */
-  readonly updateLockCommand?: CustomCommand | undefined;
+  readonly updateLockCommand?: CustomCommand;
   /** Runs a program without a shell. Tests pass a fake. */
   readonly run?: Runner;
 }
@@ -42,7 +47,9 @@ export interface ComposerOptions {
  * error's message) without secrets and cut short.
  * @param error - The caught value.
  * @param secrets - Secrets to remove from the output.
- * @returns The output.
+ * @returns The text to show, free of secrets and at most 2000 characters long.
+ * @example
+ * outputOf(new Error('composer failed'), []); // 'composer failed'
  */
 function outputOf(error: unknown, secrets: readonly string[]): string {
   const stderr = isRecord(error) ? String(error.stderr ?? '').trim() : '';
@@ -57,8 +64,10 @@ function outputOf(error: unknown, secrets: readonly string[]): string {
  * directory, with an environment that has no `PACKAGIST_*` values.
  * @param args - Arguments for `composer`.
  * @param options - The project and the release environment.
- * @throws {SemanticReleaseError} `ECOMPOSERNOTFOUND` if `composer` is not
+ * @throws SemanticReleaseError `ECOMPOSERNOTFOUND` if `composer` is not
  * installed; otherwise the error of the failed command.
+ * @example
+ * await composer(['--version'], options);
  */
 async function composer(
   args: readonly string[],
@@ -80,17 +89,24 @@ async function composer(
   });
 }
 
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
+
 /**
  * Check that `composer.json` is valid, with `composer validate --strict
  * --no-check-version` unless a custom command was configured. A custom
  * command is run as it is.
  * @param options - The project, the release environment and the commands.
- * @throws {SemanticReleaseError} `EINVALIDCOMPOSERJSON` if the check fails,
+ * @throws SemanticReleaseError `EINVALIDCOMPOSERJSON` if the check fails,
  * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
  * could not be started because `composer` is not installed.
+ * @rejects SemanticReleaseError `EINVALIDCOMPOSERJSON` if the check fails,
+ * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
+ * could not be started because `composer` is not installed.
+ * @example
+ * await validate({ cwd: '/project', logger, env, secrets: [] });
  */
 export async function validate(options: ComposerOptions): Promise<void> {
-  const { cwd, logger, validateCommand } = options;
+  const { cwd, logger, validateCommand, secrets } = options;
   try {
     if (validateCommand) {
       await validateCommand(cwd, logger);
@@ -108,21 +124,29 @@ export async function validate(options: ComposerOptions): Promise<void> {
     throw new SemanticReleaseError(
       '`composer.json` validation failed.',
       'EINVALIDCOMPOSERJSON',
-      `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${outputOf(error, options.secrets)}`,
+      `The \`composer.json\` file is not valid. Please check its structure or the output of your custom validation command. If using default validation, run \`composer validate --strict --no-check-version\` locally. Output: ${outputOf(error, secrets)}`,
     );
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
+
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Bring `composer.lock` up to date with `composer update --lock` unless a
  * custom command was configured. A custom command is run as it is.
  * @param options - The project, the release environment and the commands.
- * @throws {SemanticReleaseError} `ELOCKUPDATEFAILED` if the update fails,
+ * @throws SemanticReleaseError `ELOCKUPDATEFAILED` if the update fails,
  * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
  * could not be started because `composer` is not installed.
+ * @rejects SemanticReleaseError `ELOCKUPDATEFAILED` if the update fails,
+ * with what the command printed; `ECOMPOSERNOTFOUND` if the default command
+ * could not be started because `composer` is not installed.
+ * @example
+ * await updateLock({ cwd: '/project', logger, env, secrets: [] });
  */
 export async function updateLock(options: ComposerOptions): Promise<void> {
-  const { cwd, logger, updateLockCommand } = options;
+  const { cwd, logger, updateLockCommand, secrets } = options;
   try {
     if (updateLockCommand) {
       await updateLockCommand(cwd, logger);
@@ -141,11 +165,12 @@ export async function updateLock(options: ComposerOptions): Promise<void> {
       // By shape, not `instanceof`: errors from child processes can come
       // from another realm.
       isRecord(error) && typeof error.message === 'string'
-        ? outputOf(error, options.secrets)
+        ? outputOf(error, secrets)
         : 'Please check your custom lock update command or run `composer update --lock` locally to see more details.',
     );
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 /**
  * The environment for `composer`: the release's own, with every `PACKAGIST_*`
@@ -155,6 +180,8 @@ export async function updateLock(options: ComposerOptions): Promise<void> {
  * left out.
  * @param env - The environment of the release.
  * @returns The variables to give `composer`.
+ * @example
+ * withoutPackagist({ PACKAGIST_TOKEN: 'secret' }).PACKAGIST_TOKEN; // ''
  */
 function withoutPackagist(
   env: Readonly<Record<string, string | undefined>>,

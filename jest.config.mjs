@@ -1,3 +1,8 @@
+/**
+ * The Jest configuration: ts-jest in ESM mode, coverage output and the
+ * global setup and teardown.
+ * @file
+ */
 export default {
   preset: 'ts-jest/presets/default-esm',
   transform: {

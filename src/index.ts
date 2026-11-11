@@ -1,4 +1,9 @@
-import * as fs from 'node:fs';
+/**
+ * The semantic-release step functions of the Packagist plugin: verify the
+ * conditions, prepare `composer.json`, and notify Packagist on publish.
+ * @file
+ */
+import { access, readFile, writeFile } from 'node:fs/promises';
 import SemanticReleaseError from '@semantic-release/error';
 import type {
   PrepareContext,
@@ -25,6 +30,8 @@ export type { PackagistPluginConfig } from './plugin-config.js';
  * @param pluginConfig - The plugin configuration.
  * @param context - The semantic-release context.
  * @returns The project that is being released and its commands.
+ * @example
+ * composerOptions(config, context).validateCommand; // the custom command, if any
  */
 function composerOptions(
   pluginConfig: PackagistPluginConfig,
@@ -42,14 +49,35 @@ function composerOptions(
 }
 
 /**
+ * Whether a file or directory exists at a path, without throwing.
+ * @param path - The path to check.
+ * @returns True when something exists at the path.
+ * @example
+ * await pathExists('/project/composer.json'); // true when the file is there
+ */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
+
+/**
  * Read and parse a `composer.json`.
  * @param path - The file.
  * @returns The parsed JSON, which is not necessarily an object.
- * @throws {SemanticReleaseError} If the file is not valid JSON.
+ * @throws SemanticReleaseError when the file is not valid JSON.
+ * @rejects SemanticReleaseError when the file is not valid JSON.
+ * @example
+ * const data = await parseComposerJson('/project/composer.json');
  */
-function parseComposerJson(path: string): unknown {
+async function parseComposerJson(path: string): Promise<unknown> {
   try {
-    return JSON.parse(fs.readFileSync(path, 'utf8'));
+    return JSON.parse(await readFile(path, 'utf8'));
   } catch (error: unknown) {
     throw new SemanticReleaseError(
       '`composer.json` validation failed.',
@@ -58,6 +86,9 @@ function parseComposerJson(path: string): unknown {
     );
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
+
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Verifies the conditions for the plugin to run. This includes checking for
@@ -65,7 +96,10 @@ function parseComposerJson(path: string): unknown {
  * credentials and the repository URL are available.
  * @param pluginConfig - The plugin configuration.
  * @param context - The semantic-release context.
- * @throws {SemanticReleaseError} If `composer.json` is missing or invalid, or if required configuration is missing.
+ * @throws SemanticReleaseError when `composer.json` is missing or invalid, or when required configuration is missing.
+ * @rejects SemanticReleaseError when `composer.json` is missing or invalid, or when required configuration is missing.
+ * @example
+ * await verifyConditions(pluginConfig, context);
  */
 export async function verifyConditions(
   pluginConfig: PackagistPluginConfig,
@@ -76,7 +110,7 @@ export async function verifyConditions(
   const env = context.env ?? process.env;
 
   const composerJsonPath = `${cwd}/composer.json`;
-  if (fs.existsSync(composerJsonPath)) {
+  if (await pathExists(composerJsonPath)) {
     logger.log('Validating composer.json...');
 
     await validate(composerOptions(pluginConfig, context));
@@ -94,13 +128,19 @@ export async function verifyConditions(
 
   logger.log('Packagist conditions verified.');
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
+
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Prepares the release by updating the `version` field in `composer.json`
  * and optionally updating `composer.lock`.
  * @param pluginConfig - The plugin configuration.
  * @param context - The semantic-release context.
- * @throws {SemanticReleaseError} If composer.json is not found or if lock file update fails.
+ * @throws SemanticReleaseError when composer.json is not found or when the lock file update fails.
+ * @rejects SemanticReleaseError when composer.json is not found or when the lock file update fails.
+ * @example
+ * await prepare(pluginConfig, { ...context, nextRelease: { version: '1.2.3' } });
  */
 export async function prepare(
   pluginConfig: PackagistPluginConfig,
@@ -113,10 +153,10 @@ export async function prepare(
   const cwd = cwdOf(context);
 
   const composerJsonPath = `${cwd}/composer.json`;
-  if (fs.existsSync(composerJsonPath)) {
+  if (await pathExists(composerJsonPath)) {
     logger.log('Writing version %s to %s', version, composerJsonPath);
 
-    const composerData = parseComposerJson(composerJsonPath);
+    const composerData = await parseComposerJson(composerJsonPath);
     if (!isRecord(composerData)) {
       throw new SemanticReleaseError(
         '`composer.json` validation failed.',
@@ -124,7 +164,7 @@ export async function prepare(
         'The `composer.json` file must contain a JSON object.',
       );
     }
-    fs.writeFileSync(
+    await writeFile(
       composerJsonPath,
       JSON.stringify({ ...composerData, version }, null, 4),
     );
@@ -132,7 +172,7 @@ export async function prepare(
     logger.log('Prepared composer.json');
 
     const composerLockPath = `${cwd}/composer.lock`;
-    if (fs.existsSync(composerLockPath)) {
+    if (await pathExists(composerLockPath)) {
       logger.log('Updating composer.lock...');
 
       await updateLock(composerOptions(pluginConfig, context));
@@ -147,18 +187,24 @@ export async function prepare(
     );
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
+
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
 
 /**
  * Publishes the package to Packagist by triggering a repository sync.
  * @param pluginConfig - The plugin configuration.
  * @param context - The semantic-release context.
- * @throws {SemanticReleaseError} If the API call to Packagist fails.
+ * @throws SemanticReleaseError when the API call to Packagist fails.
+ * @rejects SemanticReleaseError when the API call to Packagist fails.
+ * @example
+ * await publish(pluginConfig, publishContext);
  */
 export async function publish(
   pluginConfig: PackagistPluginConfig,
   context: PublishContext,
 ): Promise<void> {
-  const { logger, options } = context;
+  const { logger, options, env: contextEnv } = context;
 
   try {
     const repositoryUrl = requireRepositoryUrl(options);
@@ -168,7 +214,7 @@ export async function publish(
     );
 
     await new PackagistClient(
-      resolveCredentials(pluginConfig, context.env ?? process.env),
+      resolveCredentials(pluginConfig, contextEnv ?? process.env),
     ).updatePackage(repositoryUrl);
 
     logger.log('Successfully notified Packagist.');
@@ -187,5 +233,6 @@ export async function publish(
     );
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 export default { verifyConditions, prepare, publish } as const;

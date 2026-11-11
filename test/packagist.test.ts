@@ -1,3 +1,8 @@
+/**
+ * Tests for `request` and `PackagistClient.updatePackage`: retries, deadlines,
+ * redirects, proxies and the errors they raise, against mocked and local servers.
+ * @file
+ */
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { createServer } from 'node:http';
 import { inspect } from 'node:util';
@@ -40,7 +45,8 @@ describe('request', () => {
 
   it('returns an undefined body for an empty response', async () => {
     mockHttp({ [GET]: {} });
-    expect((await request(URL_A, {}, via())).body).toBeUndefined();
+    const result = await request(URL_A, {}, via());
+    expect(result.body).toBeUndefined();
   });
 
   it('sends the default headers once, whatever the case of an override', async () => {
@@ -107,7 +113,8 @@ describe('request', () => {
 
   it('does not retry unless asked to', async () => {
     const calls = mockHttp({ [GET]: { status: 503 } });
-    expect((await request(URL_A, {}, via())).status).toBe(503);
+    const result = await request(URL_A, {}, via());
+    expect(result.status).toBe(503);
     expect(calls).toHaveLength(1);
   });
 
@@ -126,7 +133,7 @@ describe('request', () => {
       'https://x.test/a?token=secret',
       { headers: { Authorization: 'Bearer secret' } },
       via({ retries: 1 }),
-    ).catch((error_: unknown) => error_);
+    ).catch((error: unknown) => error);
     expect(String(error)).toBe(
       'Error: Network error calling x.test: socket hang up',
     );
@@ -147,6 +154,7 @@ describe('request', () => {
   it('names the code of a failure with an empty message, such as a dual-stack refusal', async () => {
     failHttp(
       'https://x.test',
+      // eslint-disable-next-line unicorn/error-message -- the test needs an aggregate error with an empty message
       Object.assign(new AggregateError([new Error('v4'), new Error('v6')]), {
         code: 'ECONNREFUSED',
       }),
@@ -158,9 +166,10 @@ describe('request', () => {
 
   it('refuses a malformed proxy setting without printing it', async () => {
     const saved = { ...process.env };
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- the test uses a malformed proxy setting on purpose
     process.env.HTTPS_PROXY = 'http://user:PW-SECRET@bad host:3128';
     try {
-      const error = await request(URL_A, {}).catch((error_: unknown) => error_);
+      const error = await request(URL_A, {}).catch((error: unknown) => error);
       expect(error).toMatchObject({ code: 'EPROXY' });
       const shown = [
         String(error),
@@ -176,17 +185,26 @@ describe('request', () => {
   });
 });
 
+/**
+ * Start a loopback server and register its stop function for the test.
+ * @param stops - The stop functions to run after each test.
+ * @param handler - Answers each request.
+ * @returns The running server.
+ * @example
+ * const server = await serveOn(stops, (req, res) => res.end('ok'));
+ */
+async function serveOn(
+  stops: (() => Promise<void>)[],
+  handler: Parameters<typeof listen>[0],
+): ReturnType<typeof listen> {
+  const server = await listen(handler);
+  stops.push(server.close);
+  return server;
+}
+
 describe('request over a real socket', () => {
   const stops: (() => Promise<void>)[] = [];
   const saved = { ...process.env };
-
-  const serve = async (
-    handler: Parameters<typeof listen>[0],
-  ): ReturnType<typeof listen> => {
-    const server = await listen(handler);
-    stops.push(server.close);
-    return server;
-  };
 
   afterEach(async () => {
     process.env = { ...saved };
@@ -194,7 +212,7 @@ describe('request over a real socket', () => {
   });
 
   it('honours Retry-After before retrying', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       const first = seen.length === 1;
       res.writeHead(first ? 503 : 200, first ? { 'Retry-After': '1' } : {});
       res.end(first ? 'busy' : '{"ok":1}');
@@ -207,7 +225,7 @@ describe('request over a real socket', () => {
   });
 
   it('caps a long Retry-After at a quarter of the deadline', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       const first = seen.length === 1;
       res.writeHead(first ? 429 : 200, first ? { 'Retry-After': '20' } : {});
       res.end('{}');
@@ -222,7 +240,7 @@ describe('request over a real socket', () => {
 
   it('sends a retried POST body again, intact', async () => {
     const bodies: string[] = [];
-    const { url } = await serve((req, res) => {
+    const { url } = await serveOn(stops, (req, res) => {
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
       req.on('end', () => {
@@ -242,7 +260,7 @@ describe('request over a real socket', () => {
 
   it('sends an upload body with its content length', async () => {
     const lengths: (string | undefined)[] = [];
-    const { url } = await serve((req, res) => {
+    const { url } = await serveOn(stops, (req, res) => {
       lengths.push(req.headers['content-length']);
       req.resume();
       req.on('end', () => res.end('{}'));
@@ -257,7 +275,7 @@ describe('request over a real socket', () => {
   });
 
   it('retries an attempt that stalls, as a dropped connection is', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       if (seen.length > 1) {
         res.end('{"ok":1}');
       }
@@ -272,7 +290,7 @@ describe('request over a real socket', () => {
   }, 15_000);
 
   it('gives up with one request per attempt when every attempt stalls', async () => {
-    const { url, seen } = await serve(() => undefined);
+    const { url, seen } = await serveOn(stops, () => undefined);
     await expect(
       request(
         `${url}/a`,
@@ -282,9 +300,19 @@ describe('request over a real socket', () => {
     ).rejects.toThrow(/Network error calling 127\.0\.0\.1/);
     expect(seen).toHaveLength(2);
   }, 15_000);
+});
+
+describe('request over a real socket, deadlines and bodies', () => {
+  const stops: (() => Promise<void>)[] = [];
+  const saved = { ...process.env };
+
+  afterEach(async () => {
+    process.env = { ...saved };
+    await Promise.all(stops.splice(0).map((stop) => stop()));
+  });
 
   it('stops at the deadline, which does not include a back-off when nothing is retried', async () => {
-    const { url } = await serve(() => undefined);
+    const { url } = await serveOn(stops, () => undefined);
     const started = Date.now();
     await expect(request(`${url}/a`, {}, { deadlineMs: 1000 })).rejects.toThrow(
       /aborted due to timeout/,
@@ -293,7 +321,7 @@ describe('request over a real socket', () => {
   }, 15_000);
 
   it('sends exactly retries + 1 whole requests when the body is always cut short', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       res.writeHead(200, { 'Content-Length': '100' });
       res.write('{"par');
       setTimeout(() => res.socket?.destroy(), 10);
@@ -309,7 +337,7 @@ describe('request over a real socket', () => {
   }, 15_000);
 
   it('sends the whole request again, never a Range resume, when the body is cut once', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       if (seen.length === 1) {
         res.writeHead(200, { 'Content-Length': '100' });
         res.write('{"par');
@@ -328,7 +356,7 @@ describe('request over a real socket', () => {
   });
 
   it('reports a body that is cut short when the request may not be retried', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       res.writeHead(200, { 'Content-Length': '100' });
       res.write('{"par');
       setTimeout(() => res.socket?.destroy(), 10);
@@ -340,7 +368,7 @@ describe('request over a real socket', () => {
   });
 
   it('does not read, or repeat a request for, a body larger than the cap', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       res.writeHead(200);
       res.end(Buffer.alloc(33 * 1024 * 1024, 97));
     });
@@ -351,7 +379,7 @@ describe('request over a real socket', () => {
   });
 
   it('never follows a redirect and reports where it pointed, without the query', async () => {
-    const { url, seen } = await serve((_req, res) => {
+    const { url, seen } = await serveOn(stops, (_req, res) => {
       res.writeHead(302, { Location: '/elsewhere?token=SECRET' });
       res.end();
     });
@@ -374,26 +402,27 @@ describe('request over a real socket', () => {
     const error = await request(
       `http://localhost:${server.port}/a?token=SECRET`,
       { headers: { Authorization: 'Bearer SECRET' } },
-    ).catch((error_: unknown) => error_);
+    ).catch((error: unknown) => error);
     expect(String(error)).toContain('ECONNREFUSED');
     expect(String(error)).not.toContain('SECRET');
   });
 
   it('goes through the proxy named by the environment', async () => {
-    const target = await serve((_req, res) => res.end('{"direct":1}'));
+    const target = await serveOn(stops, (_req, res) => res.end('{"direct":1}'));
     const proxy = await startTunnelProxy(target.port);
     stops.push(proxy.close);
     process.env.HTTP_PROXY = proxy.url;
     process.env.NO_PROXY = '';
     delete process.env.http_proxy;
     delete process.env.no_proxy;
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols, unicorn/prefer-https -- the test exercises a plain http request that bypasses the proxy
     const result = await request('http://something.invalid/a', {});
     expect(result.body).toEqual({ direct: 1 });
     expect(proxy.tunnelled).toEqual(['something.invalid:80']);
   });
 
   it('skips the proxy for hosts listed in NO_PROXY', async () => {
-    const target = await serve((_req, res) => res.end('{"direct":1}'));
+    const target = await serveOn(stops, (_req, res) => res.end('{"direct":1}'));
     const proxy = await startTunnelProxy(target.port);
     stops.push(proxy.close);
     process.env.HTTP_PROXY = proxy.url;
@@ -417,6 +446,7 @@ describe('request over a real socket', () => {
       const started = Date.now();
       await expect(
         request(
+          // eslint-disable-next-line sonarjs/no-clear-text-protocols, unicorn/prefer-https -- the test exercises a plain http request that bypasses the proxy
           'http://something.invalid/a',
           {},
           { retries: 1, deadlineMs: 1500, minTimeout: 1 },
@@ -431,18 +461,41 @@ describe('request over a real socket', () => {
   );
 });
 
-describe('PackagistClient.updatePackage', () => {
-  const CREDENTIALS = { username: 'test-user', apiToken: 'SECRET-TOKEN' };
-  const REPOSITORY = 'https://github.com/test-user/test-repo.git';
-  const UPDATE = 'POST https://packagist.org/api/update-package';
-  const make = (credentials = CREDENTIALS): PackagistClient =>
-    new PackagistClient(credentials, { agent: mockAgent() });
-  const failure = (
-    client: PackagistClient,
-    url = REPOSITORY,
-  ): Promise<unknown> =>
-    client.updatePackage(url).catch((error: unknown) => error);
+const CREDENTIALS = { username: 'test-user', apiToken: 'SECRET-TOKEN' };
+const REPOSITORY = 'https://github.com/test-user/test-repo.git';
+const UPDATE = 'POST https://packagist.org/api/update-package';
 
+/**
+ * A client for the test credentials, talking to the mock agent.
+ * @param credentials - The Packagist account to act as.
+ * @returns A client whose calls are mocked.
+ * @example
+ * const client = make();
+ */
+const make = (credentials = CREDENTIALS): PackagistClient =>
+  new PackagistClient(credentials, { agent: mockAgent() });
+
+/**
+ * The error that an update call rejects with.
+ * @param client - The client to call.
+ * @param url - The repository to announce.
+ * @returns The error it rejected with, or undefined when it resolved.
+ * @example
+ * const error = await failure(make());
+ */
+async function failure(
+  client: PackagistClient,
+  url = REPOSITORY,
+): Promise<unknown> {
+  try {
+    await client.updatePackage(url);
+    return undefined;
+  } catch (error: unknown) {
+    return error;
+  }
+}
+
+describe('PackagistClient.updatePackage', () => {
   it('posts the repository with the credentials in the query', async () => {
     const calls = mockHttp({ [UPDATE]: { status: 202, json: {} } });
     await expect(make().updatePackage(REPOSITORY)).resolves.toBeUndefined();
@@ -545,7 +598,9 @@ describe('PackagistClient.updatePackage', () => {
     });
     expect(calls).toHaveLength(4);
   }, 15_000);
+});
 
+describe('PackagistClient.updatePackage failures', () => {
   it('does not retry a rejection of the credentials', async () => {
     const calls = mockHttp({ [UPDATE]: { status: 401 } });
     await failure(make());
@@ -579,11 +634,13 @@ describe('PackagistClient.updatePackage', () => {
     const calls = mockHttp({
       [UPDATE]: {
         status: 308,
+        // eslint-disable-next-line unicorn/prefer-https -- the test checks that a redirect to http is refused
         headers: { location: 'http://other.test/x?a=1' },
       },
     });
     expect(await failure(make())).toMatchObject({
       details: expect.stringContaining(
+        // eslint-disable-next-line unicorn/prefer-https -- the test checks that a redirect to http is refused
         'sent the request to http://other.test/x.',
       ),
     });
@@ -746,14 +803,6 @@ describe('request Retry-After forms', () => {
 describe('request redirects, when asked to follow them', () => {
   const stops: (() => Promise<void>)[] = [];
 
-  const serve = async (
-    handler: Parameters<typeof listen>[0],
-  ): ReturnType<typeof listen> => {
-    const server = await listen(handler);
-    stops.push(server.close);
-    return server;
-  };
-
   afterEach(async () => {
     await Promise.all(stops.splice(0).map((stop) => stop()));
   });
@@ -761,7 +810,7 @@ describe('request redirects, when asked to follow them', () => {
   describe('redirects', () => {
     it('are followed on the same origin when asked for, credentials included', async () => {
       const headers: unknown[] = [];
-      const { url, seen } = await serve((req, res) => {
+      const { url, seen } = await serveOn(stops, (req, res) => {
         headers.push(req.headers['authorization']);
         if (seen.length === 1) {
           res.writeHead(301, { Location: '/b?x=1' }).end();
@@ -782,8 +831,8 @@ describe('request redirects, when asked to follow them', () => {
     });
 
     it('are not followed to another origin, so the credentials stay put', async () => {
-      const other = await serve((_req, res) => res.end('{"leak":1}'));
-      const { url } = await serve((_req, res) => {
+      const other = await serveOn(stops, (_req, res) => res.end('{"leak":1}'));
+      const { url } = await serveOn(stops, (_req, res) => {
         res.writeHead(302, { Location: `${other.url}/x?token=SECRET` }).end();
       });
 
@@ -806,6 +855,7 @@ describe('request redirects, when asked to follow them', () => {
       agent
         .get('https://x.test')
         .intercept({ path: '/a', method: 'GET' })
+        // eslint-disable-next-line unicorn/prefer-https -- the fixture redirect stays on http on purpose
         .reply(301, '', { headers: { location: 'http://x.test/b?access=1' } });
 
       const result = await request(
@@ -816,12 +866,13 @@ describe('request redirects, when asked to follow them', () => {
 
       expect(result).toMatchObject({
         status: 301,
+        // eslint-disable-next-line unicorn/prefer-https -- the fixture redirect stays on http on purpose
         location: 'http://x.test/b',
       });
     });
 
     it('stop after three hops and report the last redirect', async () => {
-      const { url, seen } = await serve((_req, res) => {
+      const { url, seen } = await serveOn(stops, (_req, res) => {
         res.writeHead(301, { Location: '/again' }).end();
       });
 
@@ -832,7 +883,7 @@ describe('request redirects, when asked to follow them', () => {
     });
 
     it('are not followed for a POST', async () => {
-      const { url, seen } = await serve((_req, res) => {
+      const { url, seen } = await serveOn(stops, (_req, res) => {
         res.writeHead(307, { Location: '/b' }).end();
       });
 
@@ -847,7 +898,7 @@ describe('request redirects, when asked to follow them', () => {
     });
 
     it('are not followed without a usable location', async () => {
-      const { url, seen } = await serve((_req, res) => {
+      const { url, seen } = await serveOn(stops, (_req, res) => {
         res.writeHead(302).end();
       });
 

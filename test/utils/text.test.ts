@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the text shortening helper.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 // noinspection ES6PreferShortImport
 import { truncate } from '../../src/utils/text.js';

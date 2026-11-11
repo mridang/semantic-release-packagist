@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the credential and secret redaction helpers.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 // noinspection ES6PreferShortImport
 import { redactCredentials, redactSecrets } from '../../src/utils/redact.js';

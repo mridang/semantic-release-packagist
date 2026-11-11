@@ -1,3 +1,8 @@
+/**
+ * Test helper that routes undici requests to canned replies through a
+ * `MockAgent`, so no test reaches the network.
+ * @file
+ */
 import { beforeEach } from '@jest/globals';
 import { MockAgent } from 'undici';
 import { isRecord } from '../../src/utils/object.js';
@@ -29,6 +34,8 @@ let agent: MockAgent | undefined;
  * replaces the previous agent. An unmocked request fails with a
  * `MockNotMatchedError`.
  * @returns The agent to register interceptors on.
+ * @example
+ * const mock = install();
  */
 function install(): MockAgent {
   void agent?.close();
@@ -41,6 +48,8 @@ function install(): MockAgent {
  * Fail closed: every test in a file that imports this helper starts with a
  * mock agent that answers nothing, so a test that forgets to mock a call
  * fails instead of reaching the network.
+ * @example
+ * beforeEach(() => install());
  */
 beforeEach(() => {
   install();
@@ -50,6 +59,8 @@ beforeEach(() => {
  * The agent set up by the last `mockHttp` or `failHttp`, to pass to the code
  * under test as its connections.
  * @returns The current mock agent, or a new one when nothing was mocked.
+ * @example
+ * const connections = mockAgent();
  */
 export function mockAgent(): MockAgent {
   return agent ?? install();
@@ -59,19 +70,23 @@ export function mockAgent(): MockAgent {
  * Turn the headers undici hands to a dispatcher into a plain record.
  * @param headers - Either an object or a flat list of name and value pairs.
  * @returns The headers keyed by their original names.
+ * @example
+ * headerRecord([['Accept', 'text/plain']]); // { Accept: 'text/plain' }
  */
 function headerRecord(headers: unknown): Record<string, string> {
-  return Array.isArray(headers)
-    ? Object.fromEntries(
-        headers.flatMap((_, i) =>
-          i % 2 === 0 ? [[String(headers[i]), String(headers[i + 1])]] : [],
-        ),
-      )
-    : (isRecord(headers)
-      ? Object.fromEntries(
-          Object.entries(headers).map(([k, v]) => [k, String(v)]),
-        )
-      : {});
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(
+      headers.flatMap((_, i) =>
+        i % 2 === 0 ? [[String(headers[i]), String(headers[i + 1])]] : [],
+      ),
+    );
+  }
+  if (isRecord(headers)) {
+    return Object.fromEntries(
+      Object.entries(headers).map(([k, v]) => [k, String(v)]),
+    );
+  }
+  return {};
 }
 
 /**
@@ -79,18 +94,20 @@ function headerRecord(headers: unknown): Record<string, string> {
  * @param body - The body undici hands to the dispatcher.
  * @param headers - The request headers, to tell a form from JSON.
  * @returns A form as an object, JSON parsed, bytes as they are.
+ * @example
+ * decodeBody('{"a":1}', { 'content-type': 'application/json' }); // { a: 1 }
  */
 function decodeBody(body: unknown, headers: Record<string, string>): unknown {
   const type = Object.entries(headers).find(
     ([k]) => k.toLowerCase() === 'content-type',
   )?.[1];
-  return typeof body === 'string'
-    ? (type?.includes('x-www-form-urlencoded')
-      ? Object.fromEntries(new URLSearchParams(body))
-      : (JSON.parse(body) as unknown))
-    : (body instanceof Uint8Array
-      ? body
-      : undefined);
+  if (typeof body !== 'string') {
+    return body instanceof Uint8Array ? body : undefined;
+  }
+  if (type?.includes('x-www-form-urlencoded')) {
+    return Object.fromEntries(new URLSearchParams(body));
+  }
+  return JSON.parse(body) as unknown;
 }
 
 /**
@@ -100,6 +117,8 @@ function decodeBody(body: unknown, headers: Record<string, string>): unknown {
  * loudly. Pass `mockAgent()` to the code under test.
  * @param routes - Responses keyed by method and URL.
  * @returns Every request that was made, in order.
+ * @example
+ * const calls = mockHttp({ 'GET https://packagist.org/a': { json: { ok: true } } });
  */
 export function mockHttp(routes: Record<string, Responder>): Call[] {
   const calls: Call[] = [];
@@ -151,6 +170,8 @@ export function mockHttp(routes: Record<string, Responder>): Call[] {
  * @param origin - The scheme and host to break.
  * @param error - What the socket reports.
  * @returns A function giving the number of attempts made so far.
+ * @example
+ * const attempts = failHttp('https://packagist.org', new Error('reset'));
  */
 export function failHttp(origin: string, error: Error): () => number {
   const mock = install();

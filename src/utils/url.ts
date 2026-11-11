@@ -1,10 +1,17 @@
 /**
+ * Finds and removes the secrets held in the user info of a URL.
+ * @file
+ */
+
+/**
  * The secrets in the user info of a URL: the password, and the user name of an
  * `http(s)` URL, where `https://token@host/repo.git` is a common form. The
  * user name of any other URL, such as the `git` of `ssh://git@host/repo.git`,
  * is not secret.
  * @param url - A URL, which may not be an absolute one.
  * @returns The secrets, which are empty when there is no user info.
+ * @example
+ * userInfoSecrets('https://token@host/repo.git'); // ['token']
  */
 export function userInfoSecrets(url: string): readonly string[] {
   if (!URL.canParse(url)) {
@@ -22,6 +29,8 @@ export function userInfoSecrets(url: string): readonly string[] {
  * or that has no secret in it is returned unchanged.
  * @param url - A URL that is about to be logged or put in an error.
  * @returns The URL without secrets.
+ * @example
+ * redactUrl('https://user:token@host/repo.git'); // 'https://host/repo.git'
  */
 export function redactUrl(url: string): string {
   if (userInfoSecrets(url).length === 0) {

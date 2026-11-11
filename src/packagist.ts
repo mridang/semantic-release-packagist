@@ -1,3 +1,8 @@
+/**
+ * The HTTP transport and the Packagist API client: retries, deadlines,
+ * redirects and the translation of responses into semantic-release errors.
+ * @file
+ */
 import SemanticReleaseError from '@semantic-release/error';
 import {
   EnvHttpProxyAgent,
@@ -117,10 +122,14 @@ class BodyPhaseError extends Error {
   readonly code = BODY_PHASE_CODE;
 
   /**
+   * Wraps the error that undici reported for a lost body.
    * @param cause - The error that undici reported.
+   * @example
+   * throw new BodyPhaseError(new Error('socket hang up'));
    */
   constructor(cause: unknown) {
     super('the connection was lost while reading the response', { cause });
+    this.name = 'BodyPhaseError';
   }
 }
 
@@ -132,9 +141,11 @@ class BodyPhaseError extends Error {
  * @param attemptTimeoutMs - How long one attempt may wait for the response.
  * @returns A dispatcher with connection and response timeouts and a cap on
  * the size of a response.
- * @throws {SemanticReleaseError} If a proxy variable is not a valid proxy.
+ * @throws SemanticReleaseError when a proxy variable is not a valid proxy.
  * The message names the variables and never their value, which can hold a
  * password.
+ * @example
+ * const agent = connections(30_000);
  */
 function connections(attemptTimeoutMs: number): Dispatcher {
   try {
@@ -164,6 +175,8 @@ function connections(attemptTimeoutMs: number): Dispatcher {
  * @param error - A caught value.
  * @param host - The host that was called.
  * @returns An error with the reason in its message.
+ * @example
+ * networkErrorFor(new Error('timeout'), 'packagist.org'); // Network error calling packagist.org: timeout
  */
 function networkErrorFor(error: unknown, host: string): Error {
   const reason =
@@ -178,6 +191,8 @@ function networkErrorFor(error: unknown, host: string): Error {
  * the retrying agent leaves it alone (see {@link BodyPhaseError}).
  * @param dispatch - The dispatch function to wrap.
  * @returns A dispatch function that wraps the handler.
+ * @example
+ * const agent = base.compose(markBodyFailures);
  */
 function markBodyFailures(
   dispatch: Dispatcher['dispatch'],
@@ -214,6 +229,8 @@ function markBodyFailures(
  * @param text - The body as text.
  * @returns The parsed JSON, undefined for an empty body, else the first 500
  * characters of the text.
+ * @example
+ * decodeBody('{"ok":true}'); // { ok: true }
  */
 function decodeBody(text: string): unknown {
   if (text === '') {
@@ -232,6 +249,8 @@ function decodeBody(text: string): unknown {
  * @param location - The `Location` header.
  * @param base - The URL that was called, for a relative `Location`.
  * @returns A URL that is safe to show, or undefined without a usable header.
+ * @example
+ * placeOf('/moved?token=x', new URL('https://packagist.org/a')); // 'https://packagist.org/moved'
  */
 function placeOf(location: unknown, base: URL): string | undefined {
   if (typeof location !== 'string' || !URL.canParse(location, base.href)) {
@@ -251,6 +270,8 @@ function placeOf(location: unknown, base: URL): string | undefined {
  * @param location - The `Location` header.
  * @returns The URL to call next, or undefined when the redirect is not to be
  * followed.
+ * @example
+ * sameOriginRedirect(new URL('https://a.test/x'), 'GET', 301, '/y'); // https://a.test/y
  */
 function sameOriginRedirect(
   from: URL,
@@ -278,6 +299,8 @@ function sameOriginRedirect(
  * @param attempt - Which retry this would be, starting at 1.
  * @param retries - How many retries are allowed.
  * @returns True to try again.
+ * @example
+ * isRetryable(new Error('x'), 'GET', ['GET'], 1, 2); // true
  */
 function isRetryable(
   error: unknown,
@@ -309,6 +332,8 @@ function isRetryable(
  * @param minTimeoutMs - The first back-off.
  * @param capMs - The longest wait.
  * @returns The wait in milliseconds.
+ * @example
+ * waitBeforeRetry(new Error('x'), 2, 500, 15_000); // 1000
  */
 function waitBeforeRetry(
   error: unknown,
@@ -335,11 +360,16 @@ function waitBeforeRetry(
 }
 
 /**
+ * The HTTP methods that {@link request} can send.
+ */
+export type HttpMethod = 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'DELETE' | 'POST';
+
+/**
  * What the caller of {@link request} can ask for.
  */
 export interface HttpRequest {
   /** The HTTP method. Defaults to `GET`. */
-  readonly method?: 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'DELETE' | 'POST';
+  readonly method?: HttpMethod;
   /** Extra headers, which replace the defaults of the same name in any case. */
   readonly headers?: Readonly<Record<string, string>>;
   /** A text or binary body, which can be sent again if the call is retried. */
@@ -376,6 +406,8 @@ export interface RequestOptions {
   readonly followRedirects?: boolean;
 }
 
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
+
 /**
  * Perform a request and decode a JSON (or fall back to text) response.
  *
@@ -393,13 +425,17 @@ export interface RequestOptions {
  * which also stops a proxy tunnel that is still being set up.
  *
  * Undici's `request` is used rather than `fetch` because `fetch` turns a body
- * into a one-shot stream, which undici cannot send a second time..
+ * into a one-shot stream, which undici cannot send a second time.
  * @param url - Absolute URL to call.
  * @param init - Method, headers and body.
  * @param options - Timeouts, retries and, for tests, the connections.
  * @returns The status and decoded body.
- * @throws If the network call fails after the allowed attempts. The message
+ * @throws When the network call fails after the allowed attempts. The message
  * names the host and never contains the URL, headers or body.
+ * @rejects When the network call fails after the allowed attempts. The message
+ * names the host and never contains the URL, headers or body.
+ * @example
+ * const result = await request('https://packagist.org/api/', { method: 'GET' });
  */
 export async function request(
   url: string,
@@ -412,18 +448,19 @@ export async function request(
     minTimeout = 500,
     retryPost = false,
     followRedirects = false,
+    agent,
+    retries: allowedRetries = 0,
   } = options;
   const target = new URL(url);
   const method = init.method ?? 'GET';
   const retries =
-    method === 'POST' && !retryPost ? 0 : Math.max(0, options.retries ?? 0);
+    method === 'POST' && !retryPost ? 0 : Math.max(0, allowedRetries);
   const methods = retryPost
     ? [...IDEMPOTENT_METHODS, 'POST']
     : IDEMPOTENT_METHODS;
   const capMs = Math.min(MAX_BACKOFF_MS, Math.floor(deadlineMs / 4));
-  const own =
-    options.agent === undefined ? connections(attemptTimeoutMs) : undefined;
-  const base = options.agent ?? own;
+  const own = agent === undefined ? connections(attemptTimeoutMs) : undefined;
+  const base = agent ?? own;
   const deadline = AbortSignal.timeout(deadlineMs);
   const finished = new AbortController();
   const headers = Object.fromEntries(
@@ -443,12 +480,14 @@ export async function request(
         ? new RetryAgent(base.compose(markBodyFailures), {
             maxRetries: left,
             throwOnError: false,
-            // Cancel the wait when the deadline passes, so that it cannot
-            // hold the process after the call has given up.
+            // eslint-disable-next-line promise/prefer-await-to-callbacks -- undici RetryAgent retry option is callback based
             retry: (error, { state, opts }, callback) => {
+              // Cancel the wait when the deadline passes, so that it cannot
+              // hold the process after the call has given up.
               if (
                 !isRetryable(error, opts.method, methods, state.counter, left)
               ) {
+                // eslint-disable-next-line promise/prefer-await-to-callbacks -- undici RetryAgent retry callback
                 callback(error);
                 return;
               }
@@ -522,6 +561,7 @@ export async function request(
     await own?.destroy().catch(() => undefined);
   }
 }
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 
 /**
  * The endpoint that makes Packagist crawl a repository again.
@@ -550,6 +590,8 @@ export interface PackagistClientOptions {
  * A decoded response body as text, for an error message.
  * @param body - The body, as {@link request} decoded it.
  * @returns The text, or the JSON of a parsed body, or nothing for no body.
+ * @example
+ * textOf({ error: 'nope' }); // '{"error":"nope"}'
  */
 function textOf(body: unknown): string {
   if (typeof body === 'string') {
@@ -564,6 +606,8 @@ function textOf(body: unknown): string {
  * secrets.
  * @param repositoryUrl - The repository that was announced.
  * @returns The error to throw.
+ * @example
+ * errorFor({ status: 404, ok: false, body: undefined }, 'https://github.com/a/b.git');
  */
 function errorFor(
   result: HttpResult,
@@ -610,8 +654,11 @@ export class PackagistClient {
   private readonly agent: Dispatcher | undefined;
 
   /**
+   * Creates a client that acts as the given Packagist account.
    * @param credentials - The Packagist account to act as.
    * @param options - Test seam for the connections.
+   * @example
+   * const client = new PackagistClient({ username: 'me', apiToken: 'token' });
    */
   constructor(
     credentials: PackagistCredentials,
@@ -621,14 +668,21 @@ export class PackagistClient {
     this.agent = options.agent;
   }
 
+  /* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
+
   /**
    * Ask Packagist to re-read a repository so that the new release shows up.
    * @param repositoryUrl - The repository that Packagist tracks.
-   * @throws {SemanticReleaseError} If Packagist rejects the credentials, does
+   * @throws SemanticReleaseError when Packagist rejects the credentials, does
    * not know the package, redirects the request, or keeps failing after the
    * retries.
-   * @throws If the network fails after the retries. The error names the host
+   * @throws When the network fails after the retries. The error names the host
    * and never contains the API token.
+   * @rejects SemanticReleaseError when Packagist rejects the credentials, does
+   * not know the package, redirects the request, or keeps failing after the
+   * retries.
+   * @example
+   * await client.updatePackage('https://github.com/acme/widget.git');
    */
   async updatePackage(repositoryUrl: string): Promise<void> {
     const url = new URL(UPDATE_PACKAGE_URL);
@@ -659,4 +713,5 @@ export class PackagistClient {
     const scrubbed = redactSecrets(textOf(result.body), secrets);
     throw errorFor({ ...result, body: scrubbed }, repositoryUrl);
   }
+  /* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */
 }

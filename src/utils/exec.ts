@@ -1,4 +1,10 @@
+/**
+ * Runs child processes without a shell and turns their failures into an
+ * `ExecError` with credentials removed.
+ * @file
+ */
 import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { codeOf, messageOf, signalOf, statusOf } from './error.js';
 import { isRecord } from './object.js';
 import { redactCredentials } from './redact.js';
@@ -8,6 +14,8 @@ import { redactCredentials } from './redact.js';
  * mistaken for a failure.
  */
 const MAX_BUFFER = 64 * 1024 * 1024;
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Options for running a command.
@@ -57,15 +65,29 @@ export class ExecError extends Error {
   readonly stderr: string;
 
   /**
+   * Creates the error for a command that could not be run or failed.
    * @param message - Description of the failure, already free of credentials.
    * @param details - The code, exit status, signal and captured output.
+   * @param details.code - The system error code, or undefined when there is none.
+   * @param details.status - The exit code, or undefined when the command did not exit.
+   * @param details.signal - The signal that killed the command, or undefined.
+   * @param details.stdout - What the command wrote to stdout.
+   * @param details.stderr - What the command wrote to stderr.
+   * @example
+   * new ExecError('git failed', {
+   *   code: undefined,
+   *   status: 128,
+   *   signal: undefined,
+   *   stdout: '',
+   *   stderr: 'fatal: not a git repository',
+   * });
    */
   constructor(
     message: string,
     details: {
-      readonly code: string | undefined;
-      readonly status: number | undefined;
-      readonly signal: string | undefined;
+      readonly code?: string;
+      readonly status?: number;
+      readonly signal?: string;
       readonly stdout: string;
       readonly stderr: string;
     },
@@ -80,6 +102,8 @@ export class ExecError extends Error {
   }
 }
 
+/* eslint-disable jsdoc/check-tag-names -- @rejects is required by jsdoc/require-rejects but check-tag-names does not list it */
+
 /**
  * Run a program without a shell. Arguments are passed as an array, so nothing
  * in them is interpreted; the environment is the current one plus
@@ -91,47 +115,42 @@ export class ExecError extends Error {
  * output limit.
  * @returns The standard output as a string.
  * @throws ExecError when the program cannot be started, fails or times out;
- *   its message and output have credentials redacted.
+ * its message and output have credentials redacted.
+ * @rejects ExecError when the program cannot be started, fails or times out;
+ * its message and output have credentials redacted.
+ * @example
+ * const version = await run('git', ['--version'], { cwd: process.cwd() });
  */
-export const run: Runner = (file, args, options = {}) =>
-  new Promise((resolve, reject) => {
-    const child = execFile(
-      file,
-      [...args],
-      {
-        cwd: options.cwd,
-        env: { ...process.env, ...options.env },
-        maxBuffer: options.maxBuffer ?? MAX_BUFFER,
-        timeout: options.timeout,
-        encoding: 'utf8',
-      },
-      (error, stdout, stderr) => {
-        if (error === null) {
-          resolve(stdout);
-          return;
-        }
-        const text = (value: unknown, fallback: string): string =>
-          redactCredentials(typeof value === 'string' ? value : fallback);
-        const timedOut =
-          isRecord(error) &&
-          error.killed === true &&
-          options.timeout !== undefined;
-        reject(
-          new ExecError(redactCredentials(messageOf(error)), {
-            code: timedOut ? 'ETIMEDOUT' : codeOf(error),
-            status:
-              statusOf(error) ??
-              (isRecord(error) && typeof error.code === 'number'
-                ? error.code
-                : undefined),
-            signal: signalOf(error),
-            stdout: text(stdout, ''),
-            stderr: text(stderr, ''),
-          }),
-        );
-      },
-    );
-    // The command may exit before it has read its input (EPIPE).
-    child.stdin?.on('error', () => undefined);
-    child.stdin?.end(options.input);
+export const run: Runner = async (file, args, options = {}) => {
+  const pending = execFileAsync(file, [...args], {
+    cwd: options.cwd,
+    env: { ...process.env, ...options.env },
+    maxBuffer: options.maxBuffer ?? MAX_BUFFER,
+    timeout: options.timeout,
+    encoding: 'utf8',
   });
+  // The command may exit before it has read its input (EPIPE).
+  pending.child.stdin?.on('error', () => undefined);
+  pending.child.stdin?.end(options.input);
+  try {
+    const { stdout } = await pending;
+    return stdout;
+  } catch (error: unknown) {
+    const text = (value: unknown): string =>
+      redactCredentials(typeof value === 'string' ? value : '');
+    const timedOut =
+      isRecord(error) && error.killed === true && options.timeout !== undefined;
+    throw new ExecError(redactCredentials(messageOf(error)), {
+      code: timedOut ? 'ETIMEDOUT' : codeOf(error),
+      status:
+        statusOf(error) ??
+        (isRecord(error) && typeof error.code === 'number'
+          ? error.code
+          : undefined),
+      signal: signalOf(error),
+      stdout: text(isRecord(error) ? error.stdout : undefined),
+      stderr: text(isRecord(error) ? error.stderr : undefined),
+    });
+  }
+};
+/* eslint-enable jsdoc/check-tag-names -- end of the @rejects scope */

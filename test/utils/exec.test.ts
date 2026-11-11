@@ -1,4 +1,11 @@
+/**
+ * Unit tests for the command runner: arguments, environment, input, timeouts,
+ * and the shape of the errors it raises.
+ * @file
+ */
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { promisify } from 'node:util';
+
 type Callback = (error: unknown, stdout: unknown, stderr: unknown) => void;
 
 const stdin = { on: jest.fn(), end: jest.fn() };
@@ -12,6 +19,39 @@ const execFileMock =
     ) => { stdin: typeof stdin }
   >();
 
+/**
+ * Stands in for `execFile`'s promisified form, which the runner uses. It
+ * settles from the same callback the mock is driven with.
+ * @param file - Program to run.
+ * @param args - Its arguments.
+ * @param options - The options the runner passed.
+ * @returns A promise of the output, carrying the fake child process.
+ * @example
+ * const pending = asPromisedExecFile('git', ['status'], {});
+ */
+function asPromisedExecFile(
+  file: string,
+  args: readonly string[],
+  options: Record<string, unknown>,
+): Promise<{ stdout: string; stderr: string }> & { child: unknown } {
+  let child: unknown;
+  const promise = new Promise<{ stdout: string; stderr: string }>(
+    (resolve, reject) => {
+      // eslint-disable-next-line promise/prefer-await-to-callbacks -- the fake must call back the way execFile does
+      child = execFileMock(file, args, options, (error, stdout, stderr) => {
+        if (error === null) {
+          resolve({ stdout: stdout as string, stderr: stderr as string });
+          return;
+        }
+        reject(Object.assign(error as object, { stdout, stderr }));
+      });
+    },
+  );
+  return Object.assign(promise, { child });
+}
+
+Object.assign(execFileMock, { [promisify.custom]: asPromisedExecFile });
+
 jest.unstable_mockModule('node:child_process', () => ({
   execFile: execFileMock,
 }));
@@ -20,9 +60,16 @@ const { ExecError, run } = await import('../../src/utils/exec.js');
 
 /**
  * Make the next command finish by calling its callback.
+ * @param error - The error the command reports, or null for success.
+ * @param stdout - The standard output the command reports.
+ * @param stderr - The standard error the command reports.
+ * @example
+ * finishWith(null, 'out', '');
  */
 function finishWith(error: unknown, stdout: unknown, stderr: unknown): void {
+  // eslint-disable-next-line promise/prefer-await-to-callbacks -- the fake must call back the way execFile does
   execFileMock.mockImplementation((_file, _args, _options, callback) => {
+    // eslint-disable-next-line promise/prefer-await-to-callbacks -- the fake must call back the way execFile does
     callback(error, stdout, stderr);
     return { stdin };
   });
@@ -30,12 +77,18 @@ function finishWith(error: unknown, stdout: unknown, stderr: unknown): void {
 
 /**
  * The error a failed command rejects with.
+ * @param promise - The pending run of a command.
+ * @returns The error it rejected with, or undefined when it resolved.
+ * @example
+ * const error = await rejection(run('git', ['pull']));
  */
 async function rejection(promise: Promise<string>): Promise<unknown> {
-  return promise.then(
-    () => undefined,
-    (error: unknown) => error,
-  );
+  try {
+    await promise;
+    return undefined;
+  } catch (error: unknown) {
+    return error;
+  }
 }
 
 beforeEach(() => {
@@ -127,9 +180,9 @@ describe('run', () => {
   it('takes a numeric code as the exit status', async () => {
     finishWith(Object.assign(new Error('failed'), { code: 2 }), '', '');
 
-    expect(await rejection(run('docker', ['pull']))).toEqual(
-      expect.objectContaining({ status: 2, code: undefined }),
-    );
+    const error = await rejection(run('docker', ['pull']));
+    expect(error).toEqual(expect.objectContaining({ status: 2 }));
+    expect(error).toHaveProperty('code', undefined);
   });
 
   it('reports a command killed after the timeout as ETIMEDOUT', async () => {
@@ -154,9 +207,9 @@ describe('run', () => {
       '',
     );
 
-    expect(await rejection(run('docker', ['build']))).toEqual(
-      expect.objectContaining({ code: undefined, signal: 'SIGKILL' }),
-    );
+    const error = await rejection(run('docker', ['build']));
+    expect(error).toEqual(expect.objectContaining({ signal: 'SIGKILL' }));
+    expect(error).toHaveProperty('code', undefined);
   });
 
   it('redacts credentials in the message of the error', async () => {

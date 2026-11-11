@@ -1,6 +1,13 @@
+/**
+ * Test helper that runs a local HTTP proxy which accepts `CONNECT` requests.
+ * @file
+ */
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 
+/**
+ * A running tunnel proxy and the means to inspect and stop it.
+ */
 export interface TunnelProxy {
   readonly url: string;
   readonly tunnelled: string[];
@@ -12,6 +19,9 @@ export interface TunnelProxy {
  * host it was asked for and tunnels to a local server instead.
  * @param targetPort - The local port every tunnel leads to.
  * @returns The proxy's URL, the hosts it was asked for and a way to stop it.
+ * @example
+ * const proxy = await startTunnelProxy(8080);
+ * await proxy.close();
  */
 export async function startTunnelProxy(
   targetPort: number,

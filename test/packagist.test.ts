@@ -155,10 +155,10 @@ describe('request', () => {
   it('names the code of a failure with an empty message, such as a dual-stack refusal', async () => {
     failHttp(
       'https://x.test',
-      // eslint-disable-next-line unicorn/error-message -- the test needs an aggregate error with an empty message
-      Object.assign(new AggregateError([new Error('v4'), new Error('v6')]), {
-        code: 'ECONNREFUSED',
-      }),
+      Object.assign(
+        new AggregateError([new Error('v4'), new Error('v6')], 'x'),
+        { message: '', code: 'ECONNREFUSED' },
+      ),
     );
     await expect(request(URL_A, {}, via())).rejects.toThrow(
       'Network error calling x.test: ECONNREFUSED',

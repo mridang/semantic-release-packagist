@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { createServer } from 'node:http';
 import { inspect } from 'node:util';
 import { MockAgent } from 'undici';
+import urls from './fixtures/insecure-urls.json' with { type: 'json' };
 import {
   PackagistClient,
   request,
@@ -166,8 +167,7 @@ describe('request', () => {
 
   it('refuses a malformed proxy setting without printing it', async () => {
     const saved = { ...process.env };
-    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- the test uses a malformed proxy setting on purpose
-    process.env.HTTPS_PROXY = 'http://user:PW-SECRET@bad host:3128';
+    process.env.HTTPS_PROXY = urls.proxy;
     try {
       const error = await request(URL_A, {}).catch((error: unknown) => error);
       expect(error).toMatchObject({ code: 'EPROXY' });
@@ -415,8 +415,7 @@ describe('request over a real socket, deadlines and bodies', () => {
     process.env.NO_PROXY = '';
     delete process.env.http_proxy;
     delete process.env.no_proxy;
-    // eslint-disable-next-line sonarjs/no-clear-text-protocols, unicorn/prefer-https -- the test exercises a plain http request that bypasses the proxy
-    const result = await request('http://something.invalid/a', {});
+    const result = await request(urls.plain, {});
     expect(result.body).toEqual({ direct: 1 });
     expect(proxy.tunnelled).toEqual(['something.invalid:80']);
   });
@@ -446,8 +445,7 @@ describe('request over a real socket, deadlines and bodies', () => {
       const started = Date.now();
       await expect(
         request(
-          // eslint-disable-next-line sonarjs/no-clear-text-protocols, unicorn/prefer-https -- the test exercises a plain http request that bypasses the proxy
-          'http://something.invalid/a',
+          urls.plain,
           {},
           { retries: 1, deadlineMs: 1500, minTimeout: 1 },
         ),
@@ -634,14 +632,12 @@ describe('PackagistClient.updatePackage failures', () => {
     const calls = mockHttp({
       [UPDATE]: {
         status: 308,
-        // eslint-disable-next-line unicorn/prefer-https -- the test checks that a redirect to http is refused
-        headers: { location: 'http://other.test/x?a=1' },
+        headers: { location: urls.redirectWithQuery },
       },
     });
     expect(await failure(make())).toMatchObject({
       details: expect.stringContaining(
-        // eslint-disable-next-line unicorn/prefer-https -- the test checks that a redirect to http is refused
-        'sent the request to http://other.test/x.',
+        `sent the request to ${urls.redirectOrigin}.`,
       ),
     });
     expect(calls).toHaveLength(1);
@@ -855,8 +851,7 @@ describe('request redirects, when asked to follow them', () => {
       agent
         .get('https://x.test')
         .intercept({ path: '/a', method: 'GET' })
-        // eslint-disable-next-line unicorn/prefer-https -- the fixture redirect stays on http on purpose
-        .reply(301, '', { headers: { location: 'http://x.test/b?access=1' } });
+        .reply(301, '', { headers: { location: urls.downgradeWithQuery } });
 
       const result = await request(
         'https://x.test/a',
@@ -866,8 +861,7 @@ describe('request redirects, when asked to follow them', () => {
 
       expect(result).toMatchObject({
         status: 301,
-        // eslint-disable-next-line unicorn/prefer-https -- the fixture redirect stays on http on purpose
-        location: 'http://x.test/b',
+        location: urls.downgrade,
       });
     });
 

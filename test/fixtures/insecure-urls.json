@@ -1,0 +1,8 @@
+{
+  "proxy": "http://user:PW-SECRET@bad host:3128",
+  "plain": "http://something.invalid/a",
+  "redirectWithQuery": "http://other.test/x?a=1",
+  "redirectOrigin": "http://other.test/x",
+  "downgradeWithQuery": "http://x.test/b?access=1",
+  "downgrade": "http://x.test/b"
+}

@@ -102,7 +102,6 @@ export class ExecError extends Error {
   }
 }
 
-
 /**
  * Run a program without a shell. Arguments are passed as an array, so nothing
  * in them is interpreted; the environment is the current one plus

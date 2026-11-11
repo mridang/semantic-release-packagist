@@ -406,7 +406,6 @@ export interface RequestOptions {
   readonly followRedirects?: boolean;
 }
 
-
 /**
  * Perform a request and decode a JSON (or fall back to text) response.
  *
@@ -665,7 +664,6 @@ export class PackagistClient {
     this.credentials = credentials;
     this.agent = options.agent;
   }
-
 
   /**
    * Ask Packagist to re-read a repository so that the new release shows up.

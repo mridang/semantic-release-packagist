@@ -89,7 +89,6 @@ async function composer(
   });
 }
 
-
 /**
  * Check that `composer.json` is valid, with `composer validate --strict
  * --no-check-version` unless a custom command was configured. A custom
@@ -127,7 +126,6 @@ export async function validate(options: ComposerOptions): Promise<void> {
     );
   }
 }
-
 
 /**
  * Bring `composer.lock` up to date with `composer update --lock` unless a

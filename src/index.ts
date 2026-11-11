@@ -64,7 +64,6 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-
 /**
  * Read and parse a `composer.json`.
  * @param path - The file.
@@ -85,7 +84,6 @@ async function parseComposerJson(path: string): Promise<unknown> {
     );
   }
 }
-
 
 /**
  * Verifies the conditions for the plugin to run. This includes checking for
@@ -125,7 +123,6 @@ export async function verifyConditions(
 
   logger.log('Packagist conditions verified.');
 }
-
 
 /**
  * Prepares the release by updating the `version` field in `composer.json`
@@ -182,7 +179,6 @@ export async function prepare(
     );
   }
 }
-
 
 /**
  * Publishes the package to Packagist by triggering a repository sync.

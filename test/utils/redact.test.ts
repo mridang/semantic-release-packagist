@@ -69,3 +69,92 @@ describe('redactSecrets', () => {
     expect(redactSecrets('text', [''])).toBe('text');
   });
 });
+
+describe('redactCredentials user information scan', () => {
+  // Built from strings on purpose: this is the slow pattern the code used to hold.
+  const oldPattern = (...parts: string[]): RegExp =>
+    new RegExp(parts.join(''), 'gi');
+  const scheme = String.raw`([a-z][a-z0-9+.-]*:\/\/)`;
+  const withPassword = String.raw`[^\s/@:]*:\S*@`;
+  const token = String.raw`[^\s/@:]+@`;
+  const reference = (text: string): string =>
+    text
+      .replaceAll(oldPattern(scheme, withPassword), '$1***@')
+      .replaceAll(oldPattern(scheme, token), '$1***@');
+  const pieces = [
+    'http',
+    'git+ssh',
+    'S',
+    'a',
+    '1',
+    '+',
+    '.',
+    '-',
+    ':',
+    '://',
+    '/',
+    '@',
+    ' ',
+    '\n',
+    '\u00A0',
+    'é',
+    '*',
+  ];
+
+  it('gives the same result as the regular expressions it replaced', () => {
+    let seed = 12_345;
+    const below = (limit: number): number => {
+      seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
+      return seed % limit;
+    };
+    for (let round = 0; round < 20_000; round++) {
+      const input = Array.from(
+        { length: 1 + below(14) },
+        () => pieces[below(pieces.length)],
+      ).join('');
+      expect([input, redactCredentials(input)]).toEqual([
+        input,
+        reference(input),
+      ]);
+    }
+  });
+
+  it.each([
+    'https://:pw@host',
+    'https://u:@host',
+    '1http://u:p@h',
+    '+.-a://u:p@h',
+    '1+2://u:p@h',
+    'a://b://u:p@h',
+    'a://u:p@b@c d://x@y',
+    'https://u:p@h\nhttps://v@h',
+    'https://u:p h@x',
+    'x:// ://u:p@h',
+  ])('matches the old behaviour on %j', (input) => {
+    expect(redactCredentials(input)).toBe(reference(input));
+  });
+
+  it('stays fast on a very long run of scheme characters', () => {
+    const input = 'a'.repeat(200_000);
+    const started = Date.now();
+
+    expect(redactCredentials(input)).toBe(input);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('stays fast on a very long run of candidate URLs without an at sign', () => {
+    const input = 'a://:'.repeat(40_000);
+    const started = Date.now();
+
+    expect(redactCredentials(input)).toBe(input);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('stays fast on a very long password, and keeps the last at sign', () => {
+    const input = `https://u:${'p@'.repeat(100_000)}host/x`;
+    const started = Date.now();
+
+    expect(redactCredentials(input)).toBe('https://***@host/x');
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+});

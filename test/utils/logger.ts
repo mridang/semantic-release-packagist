@@ -1,7 +1,14 @@
 /**
+ * Test helper that provides a semantic-release style logger.
+ * @file
+ */
+
+/**
  * A semantic-release style logger that records everything written to it.
- *
  * @returns The logger and the lines it has received.
+ * @example
+ * const { logger, lines } = recordingLogger();
+ * logger.log('done'); // lines is ['done']
  */
 export function recordingLogger(): {
   logger: {

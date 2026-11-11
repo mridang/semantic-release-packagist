@@ -1,3 +1,8 @@
+/**
+ * Integration tests for the step functions: verify conditions, prepare and
+ * publish, run against temporary projects with the Packagist call mocked.
+ * @file
+ */
 import {
   afterEach,
   beforeEach,
@@ -7,7 +12,7 @@ import {
   jest,
 } from '@jest/globals';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import path from 'node:path';
 import plugin, { prepare, publish, verifyConditions } from '../src/index.js';
 import type { StepLogger } from '../src/plugin-config.js';
 import { PackagistClient } from '../src/packagist.js';
@@ -23,6 +28,8 @@ import { withTmp } from './utils/tmpdir.js';
 /**
  * Fail closed: unless a test mocks the Packagist call itself, a step that
  * reaches it fails instead of reaching the network.
+ * @example
+ * beforeEach(() => jest.spyOn(PackagistClient.prototype, 'updatePackage'));
  */
 beforeEach(() => {
   jest
@@ -41,11 +48,15 @@ const passes = async (): Promise<void> => undefined;
 
 /**
  * Remove the Packagist variables from the environment for one test.
+ * @example
+ * withoutPackagistEnv(); // PACKAGIST_TOKEN is unset for the rest of the test
  */
 function withoutPackagistEnv(): void {
-  const { PACKAGIST_USERNAME, PACKAGIST_TOKEN, ...rest } = process.env;
-  void PACKAGIST_USERNAME;
-  void PACKAGIST_TOKEN;
+  const rest = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => name !== 'PACKAGIST_USERNAME' && name !== 'PACKAGIST_TOKEN',
+    ),
+  );
   jest.replaceProperty(process, 'env', rest);
 }
 
@@ -78,7 +89,7 @@ describe('verifyConditions', () => {
         verifyConditions(CONFIG, context),
       );
       expect(lines).toContain('composer.json is valid (default validation).');
-      expect(await readFile(join(cwd, 'args.txt'), 'utf8')).toBe(
+      expect(await readFile(path.join(cwd, 'args.txt'), 'utf8')).toBe(
         'validate --strict --no-check-version\n',
       );
     });
@@ -146,12 +157,12 @@ describe('verifyConditions', () => {
       async (cwd) => {
         const verify = await withComposer(noisy, () =>
           verifyConditions(CONFIG, verifyContext({ cwd }).context).catch(
-            (e: unknown) => e,
+            (error: unknown) => error,
           ),
         );
         const prepared = await withComposer(noisy, () =>
           prepare(CONFIG, prepareContext({ cwd }).context).catch(
-            (e: unknown) => e,
+            (error: unknown) => error,
           ),
         );
         for (const failure of [verify, prepared]) {
@@ -177,7 +188,7 @@ describe('verifyConditions', () => {
                 PACKAGIST_USERNAME: 'env-user',
               },
             }).context,
-          ).catch((e: unknown) => e),
+          ).catch((error: unknown) => error),
       );
       expect(JSON.stringify(failure)).toContain('env=[]');
       expect(JSON.stringify(failure)).toContain('config=[[redacted]]');
@@ -230,7 +241,9 @@ describe('verifyConditions', () => {
       });
     });
   });
+});
 
+describe('verifyConditions refusals', () => {
   it('refuses a missing composer.json', async () => {
     await withTmp({}, async (cwd) => {
       const { context } = verifyContext({ cwd });
@@ -286,7 +299,7 @@ describe('prepare', () => {
       const { context, lines } = prepareContext({ cwd });
       await prepare(CONFIG, context);
       const written: unknown = JSON.parse(
-        await readFile(join(cwd, 'composer.json'), 'utf8'),
+        await readFile(path.join(cwd, 'composer.json'), 'utf8'),
       );
       expect(written).toStrictEqual({ name: 'test/pkg', version: '2.0.0' });
       expect(lines).toContain(
@@ -298,7 +311,7 @@ describe('prepare', () => {
   it('adds the version when composer.json has none, indented by four spaces', async () => {
     await withTmp({ 'composer.json': '{"name":"test/pkg"}' }, async (cwd) => {
       await prepare(CONFIG, prepareContext({ cwd }).context);
-      expect(await readFile(join(cwd, 'composer.json'), 'utf8')).toBe(
+      expect(await readFile(path.join(cwd, 'composer.json'), 'utf8')).toBe(
         '{\n    "name": "test/pkg",\n    "version": "2.0.0"\n}',
       );
     });
@@ -349,7 +362,7 @@ describe('prepare', () => {
           prepare(CONFIG, context),
         );
         expect(lines).toContain('composer.lock updated (default command).');
-        expect(await readFile(join(cwd, 'args.txt'), 'utf8')).toBe(
+        expect(await readFile(path.join(cwd, 'args.txt'), 'utf8')).toBe(
           'update --lock\n',
         );
       },
@@ -473,9 +486,8 @@ describe('publish', () => {
   });
 
   it('keeps the coded errors of the client', async () => {
-    const { default: SemanticReleaseError } = await import(
-      '@semantic-release/error'
-    );
+    const { default: SemanticReleaseError } =
+      await import('@semantic-release/error');
     const failure = new SemanticReleaseError(
       'Invalid Packagist credentials.',
       'EINVALIDPACKAGISTTOKEN',

@@ -1,3 +1,7 @@
+/**
+ * Test helpers that run local HTTP servers, including misbehaving proxies.
+ * @file
+ */
 import {
   createServer,
   type IncomingMessage,
@@ -16,9 +20,10 @@ export interface LoopbackServer {
 
 /**
  * Stop a server, dropping the connections it still holds.
- *
- * @param server The server to stop.
+ * @param server - The server to stop.
  * @returns Resolves once it has stopped.
+ * @example
+ * await stop(server);
  */
 function stop(server: Server): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -29,9 +34,11 @@ function stop(server: Server): Promise<void> {
 
 /**
  * Start an HTTP server on a free loopback port.
- *
- * @param handler Answers each request.
+ * @param handler - Answers each request.
  * @returns Where it listens, what it has seen and a way to stop it.
+ * @example
+ * const server = await listen((req, res) => res.end('ok'));
+ * await server.close();
  */
 export async function listen(
   handler: (request: IncomingMessage, response: ServerResponse) => void,
@@ -63,10 +70,12 @@ export interface FaultyProxy {
 
 /**
  * Start a proxy that accepts a `CONNECT` and then misbehaves.
- *
- * @param mode `reset` drops the connection at once; `stall` never answers.
+ * @param mode - `reset` drops the connection at once; `stall` never answers.
  * @returns The proxy's URL, a counter of the tunnels asked for and a way to
  * stop it.
+ * @example
+ * const proxy = await startFaultyProxy('reset');
+ * await proxy.close();
  */
 export async function startFaultyProxy(
   mode: 'reset' | 'stall',

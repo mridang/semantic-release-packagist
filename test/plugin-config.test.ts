@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the plugin configuration helpers.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 import {
   cwdOf,

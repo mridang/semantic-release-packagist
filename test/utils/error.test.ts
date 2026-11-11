@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the readers of thrown values.
+ * @file
+ */
 import { describe, expect, it } from '@jest/globals';
 // noinspection ES6PreferShortImport
 import {
@@ -6,6 +10,17 @@ import {
   signalOf,
   statusOf,
 } from '../../src/utils/error.js';
+
+/**
+ * Clear the message of an error, for the cases that need it empty.
+ * @param error - The error to change.
+ * @returns The same error, with an empty message.
+ * @example
+ * const error = withoutMessage(new TypeError('x')); // error.message === ''
+ */
+function withoutMessage<T extends Error>(error: T): T {
+  return Object.assign(error, { message: '' });
+}
 
 describe('messageOf', () => {
   it('reads the message of an Error', () => {
@@ -20,7 +35,9 @@ describe('messageOf', () => {
 
   it('describes an error without a message by its code', () => {
     expect(
-      messageOf(Object.assign(new Error(''), { code: 'ECONNREFUSED' })),
+      messageOf(
+        Object.assign(withoutMessage(new Error('x')), { code: 'ECONNREFUSED' }),
+      ),
     ).toBe('ECONNREFUSED');
   });
 
@@ -28,21 +45,28 @@ describe('messageOf', () => {
     const inner = Object.assign(new Error('connect ECONNREFUSED ::1:443'), {
       code: 'ECONNREFUSED',
     });
-    expect(messageOf(new AggregateError([inner, new Error('other')], ''))).toBe(
-      'connect ECONNREFUSED ::1:443',
-    );
+    expect(
+      messageOf(
+        withoutMessage(new AggregateError([inner, new Error('other')], 'x')),
+      ),
+    ).toBe('connect ECONNREFUSED ::1:443');
   });
 
   it('prefers the code of an aggregate error over its inner errors', () => {
-    const error = Object.assign(new AggregateError([new Error('inner')], ''), {
-      code: 'ECONNREFUSED',
-    });
+    const error = Object.assign(
+      withoutMessage(new AggregateError([new Error('inner')], 'x')),
+      {
+        code: 'ECONNREFUSED',
+      },
+    );
     expect(messageOf(error)).toBe('ECONNREFUSED');
   });
 
   it('falls back to the name of an error with nothing else to say', () => {
-    expect(messageOf(new AggregateError([], ''))).toBe('AggregateError');
-    expect(messageOf(new TypeError(''))).toBe('TypeError');
+    expect(messageOf(withoutMessage(new AggregateError([], 'x')))).toBe(
+      'AggregateError',
+    );
+    expect(messageOf(withoutMessage(new TypeError('x')))).toBe('TypeError');
   });
 
   it('recognises an error from another realm by its shape', () => {

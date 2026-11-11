@@ -1,3 +1,8 @@
+/**
+ * Unit tests for `validate` and `updateLock`: the default commands, the
+ * custom commands, the environment handed to composer and the errors raised.
+ * @file
+ */
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   updateLock,
@@ -12,6 +17,11 @@ const CWD = '/work/project';
 
 /**
  * Options for the module, with a fake runner.
+ * @param run - The fake runner that stands in for the program.
+ * @param options - Options to add or override.
+ * @returns The options for the module and the lines logged through them.
+ * @example
+ * const { options, lines } = make(jest.fn<Runner>().mockResolvedValue(''));
  */
 function make(
   run: Runner,
@@ -26,12 +36,16 @@ function make(
 
 /**
  * An error like the one the runner raises for a command that failed.
+ * @param stderr - What the failed command wrote to stderr.
+ * @param code - The system error code, when there is one; otherwise exit status 2.
+ * @returns The error the runner would raise.
+ * @example
+ * const error = failed('composer: not found', 'ENOENT');
  */
 function failed(stderr: string, code?: string): ExecError {
+  const cause = code === undefined ? { status: 2 } : { code };
   return new ExecError('Command failed: composer', {
-    code,
-    status: code === undefined ? 2 : undefined,
-    signal: undefined,
+    ...cause,
     stdout: '',
     stderr,
   });
@@ -58,7 +72,7 @@ describe('validate', () => {
     const { options } = make(run, {
       env: {
         PATH: '/bin',
-        UNSET: undefined,
+        UNSET: process.env['PACKAGIST_UNSET_FOR_TEST'],
         PACKAGIST_TOKEN: 'secret-token',
         PACKAGIST_OTHER: 'x',
       },
@@ -88,7 +102,7 @@ describe('validate', () => {
       .fn<Runner>()
       .mockRejectedValue(failed(`bad ${'x'.repeat(5000)} tok3n`));
     const { options } = make(run, { secrets: ['tok3n'] });
-    const failure = await validate(options).catch((e: unknown) => e);
+    const failure = await validate(options).catch((error: unknown) => error);
     expect(failure).toMatchObject({
       code: 'EINVALIDCOMPOSERJSON',
       message: '`composer.json` validation failed.',
@@ -131,9 +145,7 @@ describe('validate', () => {
   it('does not blame composer when it exits 127 for one of its scripts', async () => {
     const run = jest.fn<Runner>().mockRejectedValue(
       new ExecError('x', {
-        code: undefined,
         status: 127,
-        signal: undefined,
         stdout: '',
         stderr: 'hook.sh: command not found',
       }),

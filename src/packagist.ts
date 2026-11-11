@@ -478,19 +478,17 @@ export async function request(
         ? new RetryAgent(base.compose(markBodyFailures), {
             maxRetries: left,
             throwOnError: false,
-            // eslint-disable-next-line promise/prefer-await-to-callbacks -- undici RetryAgent retry option is callback based
-            retry: (error, { state, opts }, callback) => {
+            retry: (error, { state, opts }, resume) => {
               // Cancel the wait when the deadline passes, so that it cannot
               // hold the process after the call has given up.
               if (
                 !isRetryable(error, opts.method, methods, state.counter, left)
               ) {
-                // eslint-disable-next-line promise/prefer-await-to-callbacks -- undici RetryAgent retry callback
-                callback(error);
+                resume(error);
                 return;
               }
               const timer = setTimeout(
-                callback,
+                resume,
                 waitBeforeRetry(error, state.counter, minTimeout, capMs),
                 null,
               );

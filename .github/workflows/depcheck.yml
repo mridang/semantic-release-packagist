@@ -1,6 +1,6 @@
 name: Dependency Insight
 
-on: push
+on: pull_request
 
 defaults:
   run:

@@ -17,6 +17,17 @@ import { failHttp, mockAgent, mockHttp } from './utils/http-mock.js';
 import { startTunnelProxy } from './utils/proxy.js';
 import { listen, startFaultyProxy } from './utils/server.js';
 
+/** A loopback connection failure, as the network layer reports it. */
+const NETWORK_ERROR_LOOPBACK = /Network error calling 127\.0\.0\.1/;
+/** A request that ran past its deadline. */
+const TIMEOUT_MESSAGE = /aborted due to timeout/;
+/** A connection the peer closed before the response. */
+const OTHER_SIDE_CLOSED = /other side closed/;
+/** A request to a host that does not resolve. */
+const NETWORK_ERROR_INVALID_HOST = /Network error calling something\.invalid/;
+/** Characters that must be percent-encoded in a URL. */
+const UNSAFE_URL_CHARACTERS = /[ #é]/;
+
 describe('request', () => {
   const GET = 'GET https://x.test/a';
   const URL_A = 'https://x.test/a';
@@ -297,7 +308,7 @@ describe('request over a real socket', () => {
         {},
         { retries: 1, attemptTimeoutMs: 1000, minTimeout: 1 },
       ),
-    ).rejects.toThrow(/Network error calling 127\.0\.0\.1/);
+    ).rejects.toThrow(NETWORK_ERROR_LOOPBACK);
     expect(seen).toHaveLength(2);
   }, 15_000);
 });
@@ -315,7 +326,7 @@ describe('request over a real socket, deadlines and bodies', () => {
     const { url } = await serveOn(stops, () => undefined);
     const started = Date.now();
     await expect(request(`${url}/a`, {}, { deadlineMs: 1000 })).rejects.toThrow(
-      /aborted due to timeout/,
+      TIMEOUT_MESSAGE,
     );
     expect(Date.now() - started).toBeLessThan(2000);
   }, 15_000);
@@ -332,7 +343,7 @@ describe('request over a real socket, deadlines and bodies', () => {
         { method: 'POST', body: 'a=1' },
         { retries: 2, retryPost: true, minTimeout: 1 },
       ),
-    ).rejects.toThrow(/other side closed/);
+    ).rejects.toThrow(OTHER_SIDE_CLOSED);
     expect(seen).toEqual(['POST /a', 'POST /a', 'POST /a']);
   }, 15_000);
 
@@ -363,7 +374,7 @@ describe('request over a real socket, deadlines and bodies', () => {
     });
     await expect(
       request(`${url}/a`, { method: 'POST', body: 'a=1' }, { retries: 3 }),
-    ).rejects.toThrow(/Network error calling 127\.0\.0\.1/);
+    ).rejects.toThrow(NETWORK_ERROR_LOOPBACK);
     expect(seen).toHaveLength(1);
   });
 
@@ -374,7 +385,7 @@ describe('request over a real socket, deadlines and bodies', () => {
     });
     await expect(
       request(`${url}/a`, {}, { retries: 2, minTimeout: 1 }),
-    ).rejects.toThrow(/Network error calling 127\.0\.0\.1/);
+    ).rejects.toThrow(NETWORK_ERROR_LOOPBACK);
     expect(seen).toHaveLength(1);
   });
 
@@ -449,7 +460,7 @@ describe('request over a real socket, deadlines and bodies', () => {
           {},
           { retries: 1, deadlineMs: 1500, minTimeout: 1 },
         ),
-      ).rejects.toThrow(/Network error calling something\.invalid/);
+      ).rejects.toThrow(NETWORK_ERROR_INVALID_HOST);
       expect(Date.now() - started).toBeLessThan(4000);
       const connects = proxy.connects();
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -519,7 +530,7 @@ describe('PackagistClient.updatePackage', () => {
     await make({ username, apiToken }).updatePackage(REPOSITORY);
     const sent = new URL(calls[0].url).searchParams;
     expect(Object.fromEntries(sent)).toStrictEqual({ username, apiToken });
-    expect(calls[0].url).not.toMatch(/[ #é]/);
+    expect(calls[0].url).not.toMatch(UNSAFE_URL_CHARACTERS);
   });
 
   it.each([401, 403])(

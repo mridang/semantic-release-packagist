@@ -76,8 +76,10 @@ export function mockAgent(): MockAgent {
 function headerRecord(headers: unknown): Record<string, string> {
   if (Array.isArray(headers)) {
     return Object.fromEntries(
-      headers.flatMap((_, i) =>
-        i % 2 === 0 ? [[String(headers[i]), String(headers[i + 1])]] : [],
+      headers.flatMap((_, index) =>
+        index % 2 === 0
+          ? [[String(headers[index]), String(headers[index + 1])]]
+          : [],
       ),
     );
   }
@@ -123,13 +125,13 @@ function decodeBody(body: unknown, headers: Record<string, string>): unknown {
 export function mockHttp(routes: Record<string, Responder>): Call[] {
   const calls: Call[] = [];
   const mock = install();
-  Object.entries(routes).forEach(([key, route]) => {
+  for (const [key, route] of Object.entries(routes)) {
     const [method, rawUrl] = key.split(' ');
     const url = new URL(rawUrl);
     const path = url.pathname;
     const steps: readonly (Reply | ((call: Call) => Reply))[] =
       typeof route === 'function' || !Array.isArray(route) ? [route] : route;
-    steps.forEach((step, index) => {
+    for (const [index, step] of steps.entries()) {
       const scope = mock
         .get(url.origin)
         .intercept({
@@ -160,8 +162,8 @@ export function mockHttp(routes: Record<string, Responder>): Call[] {
       if (delay > 0) {
         timed.delay(delay);
       }
-    });
-  });
+    }
+  }
   return calls;
 }
 

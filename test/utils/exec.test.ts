@@ -169,6 +169,7 @@ describe('run', () => {
 
     const error = await rejection(run('docker', ['pull']));
     expect(error).toEqual(expect.objectContaining({ status: 2 }));
+    // eslint-disable-next-line unicorn/no-useless-undefined -- the assertion checks the property is undefined, which needs the explicit argument
     expect(error).toHaveProperty('code', undefined);
   });
 
@@ -196,6 +197,7 @@ describe('run', () => {
 
     const error = await rejection(run('docker', ['build']));
     expect(error).toEqual(expect.objectContaining({ signal: 'SIGKILL' }));
+    // eslint-disable-next-line unicorn/no-useless-undefined -- the assertion checks the property is undefined, which needs the explicit argument
     expect(error).toHaveProperty('code', undefined);
   });
 
@@ -214,6 +216,7 @@ describe('run', () => {
   });
 
   it('describes output that is not text as empty', async () => {
+    // eslint-disable-next-line unicorn/no-useless-undefined -- stderr must be passed explicitly as undefined, the function has no optional parameter
     finishWith(new Error('failed'), Buffer.from('x'), undefined);
 
     expect(await rejection(run('docker', ['pull']))).toEqual(

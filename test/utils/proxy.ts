@@ -45,7 +45,7 @@ export async function startTunnelProxy(
   return {
     url: `http://127.0.0.1:${port}`,
     tunnelled,
-    close: () =>
+    close: async () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();
         server.close(() => resolve());

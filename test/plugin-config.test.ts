@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import {
+  type PackagistPluginConfig,
   cwdOf,
   requireRepositoryUrl,
   resolveCredentials,
@@ -35,7 +36,9 @@ describe('resolveCredentials', () => {
   });
 
   it('treats null from a config file like a missing value', () => {
-    const fromFile = JSON.parse('{"username":null,"apiToken":null}');
+    const fromFile = JSON.parse(
+      '{"username":null,"apiToken":null}',
+    ) as PackagistPluginConfig;
     expect(
       resolveCredentials(fromFile, {
         PACKAGIST_USERNAME: 'env-u',

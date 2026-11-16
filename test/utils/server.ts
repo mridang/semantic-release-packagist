@@ -25,7 +25,7 @@ export interface LoopbackServer {
  * @example
  * await stop(server);
  */
-function stop(server: Server): Promise<void> {
+async function stop(server: Server): Promise<void> {
   return new Promise<void>((resolve) => {
     server.closeAllConnections();
     server.close(() => resolve());
@@ -57,7 +57,7 @@ export async function listen(
     url: `http://127.0.0.1:${port}`,
     port,
     seen,
-    close: () => stop(server),
+    close: async () => stop(server),
   };
 }
 
@@ -97,7 +97,7 @@ export async function startFaultyProxy(
   return {
     url: `http://127.0.0.1:${port}`,
     connects: () => attempts.length,
-    close: () => {
+    close: async () => {
       for (const socket of sockets) socket.destroy();
       return stop(server);
     },

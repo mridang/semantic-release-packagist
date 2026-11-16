@@ -28,8 +28,14 @@ export function messageOf(error: unknown): string {
   if (typeof error.code === 'string' && error.code) {
     return error.code;
   }
-  const [first] = Array.isArray(error.errors) ? error.errors : [];
-  return first === undefined ? String(error.name ?? 'Error') : messageOf(first);
+  const members: readonly unknown[] = Array.isArray(error.errors)
+    ? error.errors
+    : [];
+  const [first] = members;
+  if (first !== undefined) {
+    return messageOf(first);
+  }
+  return typeof error.name === 'string' ? error.name : 'Error';
 }
 
 /**

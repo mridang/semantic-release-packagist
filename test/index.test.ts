@@ -85,7 +85,7 @@ describe('verifyConditions', () => {
   it('runs composer validate by default', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const { context, lines } = verifyContext({ cwd });
-      await withComposer('echo "$@" > args.txt', () =>
+      await withComposer('echo "$@" > args.txt', async () =>
         verifyConditions(CONFIG, context),
       );
       expect(lines).toContain('composer.json is valid (default validation).');
@@ -99,7 +99,7 @@ describe('verifyConditions', () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const { context } = verifyContext({ cwd });
       await expect(
-        withComposer('echo "name is invalid" >&2; exit 2', () =>
+        withComposer('echo "name is invalid" >&2; exit 2', async () =>
           verifyConditions(CONFIG, context),
         ),
       ).rejects.toMatchObject({
@@ -114,7 +114,7 @@ describe('verifyConditions', () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const { context } = verifyContext({ cwd });
       await expect(
-        withComposer(undefined, () => verifyConditions(CONFIG, context)),
+        withComposer(undefined, async () => verifyConditions(CONFIG, context)),
       ).rejects.toMatchObject({
         code: 'ECOMPOSERNOTFOUND',
         message: '`composer` could not be run.',
@@ -142,8 +142,9 @@ describe('verifyConditions', () => {
   it('does not blame composer when one of its scripts exits 127', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       await expect(
-        withComposer('echo "hook.sh: command not found" >&2; exit 127', () =>
-          verifyConditions(CONFIG, verifyContext({ cwd }).context),
+        withComposer(
+          'echo "hook.sh: command not found" >&2; exit 127',
+          async () => verifyConditions(CONFIG, verifyContext({ cwd }).context),
         ),
       ).rejects.toMatchObject({ code: 'EINVALIDCOMPOSERJSON' });
     });
@@ -155,12 +156,12 @@ describe('verifyConditions', () => {
     await withTmp(
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
-        const verify = await withComposer(noisy, () =>
+        const verify = await withComposer(noisy, async () =>
           verifyConditions(CONFIG, verifyContext({ cwd }).context).catch(
             (error: unknown) => error,
           ),
         );
-        const prepared = await withComposer(noisy, () =>
+        const prepared = await withComposer(noisy, async () =>
           prepare(CONFIG, prepareContext({ cwd }).context).catch(
             (error: unknown) => error,
           ),
@@ -177,7 +178,7 @@ describe('verifyConditions', () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
       const failure = await withComposer(
         'echo "env=[$PACKAGIST_TOKEN$PACKAGIST_USERNAME] config=[config-token]" >&2; exit 2',
-        () =>
+        async () =>
           verifyConditions(
             { apiToken: 'config-token' },
             verifyContext({
@@ -358,7 +359,7 @@ describe('prepare', () => {
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
         const { context, lines } = prepareContext({ cwd });
-        await withComposer('echo "$@" > args.txt', () =>
+        await withComposer('echo "$@" > args.txt', async () =>
           prepare(CONFIG, context),
         );
         expect(lines).toContain('composer.lock updated (default command).');
@@ -374,7 +375,7 @@ describe('prepare', () => {
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
         await expect(
-          withComposer('echo "conflict" >&2; exit 2', () =>
+          withComposer('echo "conflict" >&2; exit 2', async () =>
             prepare(CONFIG, prepareContext({ cwd }).context),
           ),
         ).rejects.toMatchObject({
@@ -390,7 +391,7 @@ describe('prepare', () => {
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
         await expect(
-          withComposer(undefined, () =>
+          withComposer(undefined, async () =>
             prepare(CONFIG, prepareContext({ cwd }).context),
           ),
         ).rejects.toMatchObject({ code: 'ECOMPOSERNOTFOUND' });

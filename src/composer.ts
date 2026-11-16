@@ -52,7 +52,10 @@ export interface ComposerOptions {
  * outputOf(new Error('composer failed'), []); // 'composer failed'
  */
 function outputOf(error: unknown, secrets: readonly string[]): string {
-  const stderr = isRecord(error) ? String(error.stderr ?? '').trim() : '';
+  const stderr =
+    isRecord(error) && typeof error.stderr === 'string'
+      ? error.stderr.trim()
+      : '';
   return truncate(
     redactSecrets(stderr || messageOf(error), secrets),
     MAX_OUTPUT_CHARS,

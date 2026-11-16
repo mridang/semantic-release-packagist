@@ -3,6 +3,7 @@
  * and the shape of the errors it raises.
  * @file
  */
+import type { execFile as ExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
@@ -17,8 +18,9 @@ const execFileMock =
       options: Record<string, unknown>,
     ) => Promise<{ stdout: unknown; stderr: unknown }> & { child: Child }
   >();
-const actual =
-  jest.requireActual<typeof import('node:child_process')>('node:child_process');
+const actual = jest.requireActual<{ execFile: typeof ExecFile }>(
+  'node:child_process',
+);
 
 // run() promisifies execFile, so the mock stands in for the promisified form.
 jest.unstable_mockModule('node:child_process', () => ({
@@ -38,6 +40,7 @@ const { ExecError, run } = await import('../../src/utils/exec.js');
  * finishWith(null, 'out', ''); // the next run() resolves with 'out'
  */
 function finishWith(error: unknown, stdout: unknown, stderr: unknown): void {
+  // eslint-disable-next-line @typescript-eslint/promise-function-async -- the mock must return the promise that carries the child property, an async wrapper would drop it
   execFileMock.mockImplementation(() =>
     Object.assign(outcome(error, stdout, stderr), { child: { stdin } }),
   );
@@ -52,14 +55,18 @@ function finishWith(error: unknown, stdout: unknown, stderr: unknown): void {
  * @example
  * await outcome(null, 'out', ''); // { stdout: 'out', stderr: '' }
  */
-function outcome(
+async function outcome(
   failure: unknown,
   stdout: unknown,
   stderr: unknown,
 ): Promise<{ stdout: unknown; stderr: unknown }> {
+  const reason: unknown =
+    failure === null
+      ? null
+      : Object.assign(failure as object, { stdout, stderr });
   return failure === null
     ? Promise.resolve({ stdout, stderr })
-    : Promise.reject(Object.assign(failure as object, { stdout, stderr }));
+    : Promise.reject(reason);
 }
 
 /**
@@ -103,7 +110,7 @@ describe('run', () => {
     expect(execFileMock.mock.calls[0][2]).toEqual(
       expect.objectContaining({
         cwd: '/work',
-        env: expect.objectContaining({ A: 'b', PATH: process.env['PATH'] }),
+        env: expect.objectContaining({ A: 'b', PATH: process.env.PATH }),
         timeout: 1234,
         encoding: 'utf8',
       }),
@@ -225,6 +232,7 @@ describe('run', () => {
   });
 
   it('describes a missing stdout and stderr as empty', async () => {
+    // eslint-disable-next-line @typescript-eslint/promise-function-async -- the mock must return the promise that carries the child property, an async wrapper would drop it
     execFileMock.mockImplementation(() =>
       Object.assign(Promise.reject(new Error('failed')), {
         child: { stdin },
@@ -238,6 +246,7 @@ describe('run', () => {
 
   describe('with the real execFile', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/promise-function-async -- the mock must return the promise that carries the child property, an async wrapper would drop it
       execFileMock.mockImplementation((file, args, options) =>
         promisify(actual.execFile)(file, [...args], {
           ...options,

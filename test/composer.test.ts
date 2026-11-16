@@ -72,7 +72,7 @@ describe('validate', () => {
     const { options } = make(run, {
       env: {
         PATH: '/bin',
-        UNSET: process.env['PACKAGIST_UNSET_FOR_TEST'],
+        UNSET: process.env.PACKAGIST_UNSET_FOR_TEST,
         PACKAGIST_TOKEN: 'secret-token',
         PACKAGIST_OTHER: 'x',
       },

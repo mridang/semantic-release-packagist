@@ -219,7 +219,7 @@ describe('request over a real socket', () => {
 
   afterEach(async () => {
     process.env = { ...saved };
-    await Promise.all(stops.splice(0).map((stop) => stop()));
+    await Promise.all(stops.splice(0).map(async (stop) => stop()));
   });
 
   it('honours Retry-After before retrying', async () => {
@@ -319,7 +319,7 @@ describe('request over a real socket, deadlines and bodies', () => {
 
   afterEach(async () => {
     process.env = { ...saved };
-    await Promise.all(stops.splice(0).map((stop) => stop()));
+    await Promise.all(stops.splice(0).map(async (stop) => stop()));
   });
 
   it('stops at the deadline, which does not include a back-off when nothing is retried', async () => {
@@ -688,7 +688,7 @@ describe('PackagistClient.updatePackage failures', () => {
       const error = await failure(
         make({ username: 'u', apiToken: 'tok/+= é' }),
       );
-      expect(String(JSON.stringify(error))).toContain('[redacted]');
+      expect(JSON.stringify(error)).toContain('[redacted]');
       expect(JSON.stringify(error)).not.toContain(echoed);
     },
   );
@@ -811,14 +811,14 @@ describe('request redirects, when asked to follow them', () => {
   const stops: (() => Promise<void>)[] = [];
 
   afterEach(async () => {
-    await Promise.all(stops.splice(0).map((stop) => stop()));
+    await Promise.all(stops.splice(0).map(async (stop) => stop()));
   });
 
   describe('redirects', () => {
     it('are followed on the same origin when asked for, credentials included', async () => {
       const headers: unknown[] = [];
       const { url, seen } = await serveOn(stops, (req, res) => {
-        headers.push(req.headers['authorization']);
+        headers.push(req.headers.authorization);
         if (seen.length === 1) {
           res.writeHead(301, { Location: '/b?x=1' }).end();
           return;

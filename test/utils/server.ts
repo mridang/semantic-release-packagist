@@ -98,7 +98,7 @@ export async function startFaultyProxy(
     url: `http://127.0.0.1:${port}`,
     connects: () => attempts.length,
     close: () => {
-      sockets.forEach((socket) => socket.destroy());
+      for (const socket of sockets) socket.destroy();
       return stop(server);
     },
   };

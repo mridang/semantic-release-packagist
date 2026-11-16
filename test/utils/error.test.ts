@@ -30,6 +30,7 @@ describe('messageOf', () => {
   it('uses the string form of anything else', () => {
     expect(messageOf('plain')).toBe('plain');
     expect(messageOf(42)).toBe('42');
+    // eslint-disable-next-line unicorn/no-useless-undefined -- the case is an explicit undefined argument, which the typed parameter requires
     expect(messageOf(undefined)).toBe('undefined');
   });
 
@@ -89,6 +90,7 @@ describe('codeOf', () => {
     expect(codeOf(new Error('x'))).toBeUndefined();
     expect(codeOf(Object.assign(new Error('x'), { code: 5 }))).toBeUndefined();
     expect(codeOf('E1')).toBeUndefined();
+    // eslint-disable-next-line unicorn/no-useless-undefined -- the case is an explicit undefined argument, which the typed parameter requires
     expect(codeOf(undefined)).toBeUndefined();
   });
 });
@@ -111,6 +113,7 @@ describe('statusOf and signalOf', () => {
       signalOf(Object.assign(new Error('x'), { signal: 9 })),
     ).toBeUndefined();
     expect(statusOf('x')).toBeUndefined();
+    // eslint-disable-next-line unicorn/no-useless-undefined -- the case is an explicit undefined argument, which the typed parameter requires
     expect(signalOf(undefined)).toBeUndefined();
   });
 });

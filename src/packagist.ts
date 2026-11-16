@@ -506,12 +506,14 @@ export async function request(
       body: init.body,
       signal: deadline,
     });
-    const text = await response.body.text().catch((error: unknown) => {
-      if (codeOf(error) === BODY_PHASE_CODE && left > 0) {
-        return undefined;
-      }
-      throw error;
-    });
+    const text = await response.body
+      .text()
+      .catch((error: unknown): string | undefined => {
+        if (codeOf(error) === BODY_PHASE_CODE && left > 0) {
+          return undefined;
+        }
+        throw error;
+      });
     if (text === undefined) {
       return exchange(left - 1, where, hops);
     }

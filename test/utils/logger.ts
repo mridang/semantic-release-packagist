@@ -15,5 +15,8 @@ export function recordingLogger() {
   const write = (...args: unknown[]): void => {
     lines.push(args.map(String).join(' '));
   };
-  return { logger: { log: write, warn: write, error: write }, lines };
+  return {
+    logger: { log: write, warn: write, error: write, success: write },
+    lines,
+  };
 }

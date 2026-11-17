@@ -36,6 +36,7 @@ describe('resolveCredentials', () => {
   });
 
   it('treats null from a config file like a missing value', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the test feeds the config the JSON of a plain config file, including the nulls the type does not allow, and the repository has no schema library to validate it with
     const fromFile = JSON.parse(
       '{"username":null,"apiToken":null}',
     ) as PackagistPluginConfig;

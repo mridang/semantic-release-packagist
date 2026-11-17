@@ -3,8 +3,8 @@
  * credentials, directory, repository URL and secrets.
  * @file
  */
-import type { VerifyConditionsContext } from 'semantic-release';
 import SemanticReleaseError from '@semantic-release/error';
+import type { VerifyConditionsContext } from 'semantic-release';
 
 /**
  * The logger semantic-release hands to every step.

@@ -2,12 +2,12 @@
  * Test helpers that build semantic-release step contexts.
  * @file
  */
+import { recordingLogger } from './logger.js';
 import type {
   PrepareContext,
   PublishContext,
   VerifyConditionsContext,
 } from 'semantic-release';
-import { recordingLogger } from './logger.js';
 
 export const REPOSITORY_URL = 'https://github.com/test-user/test-repo.git';
 
@@ -20,7 +20,7 @@ type Parts = Record<string, unknown>;
  * @example
  * const { context, lines } = parts({ cwd: '/project' });
  */
-function parts(extra: Parts): { context: Parts; lines: string[] } {
+function parts(extra: Parts) {
   const { logger, lines } = recordingLogger();
   return {
     lines,
@@ -40,10 +40,7 @@ function parts(extra: Parts): { context: Parts; lines: string[] } {
  * @example
  * const { context } = verifyContext({ cwd: '/project' });
  */
-export function verifyContext(extra: Parts = {}): {
-  context: VerifyConditionsContext;
-  lines: string[];
-} {
+export function verifyContext(extra: Parts = {}) {
   const built = parts(extra);
   return {
     ...built,
@@ -58,10 +55,7 @@ export function verifyContext(extra: Parts = {}): {
  * @example
  * const { context } = prepareContext({ nextRelease: { version: '1.0.0' } });
  */
-export function prepareContext(extra: Parts = {}): {
-  context: PrepareContext;
-  lines: string[];
-} {
+export function prepareContext(extra: Parts = {}) {
   const built = parts(extra);
   return { ...built, context: built.context as unknown as PrepareContext };
 }
@@ -73,10 +67,7 @@ export function prepareContext(extra: Parts = {}): {
  * @example
  * const { context } = publishContext({ env: {} });
  */
-export function publishContext(extra: Parts = {}): {
-  context: PublishContext;
-  lines: string[];
-} {
+export function publishContext(extra: Parts = {}) {
   const built = parts(extra);
   return { ...built, context: built.context as unknown as PublishContext };
 }

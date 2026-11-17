@@ -5,10 +5,11 @@
  */
 import SemanticReleaseError from '@semantic-release/error';
 import { codeOf, messageOf } from './utils/error.js';
-import { run, type ExecOptions, type Runner } from './utils/exec.js';
+import { run } from './utils/exec.js';
 import { isRecord } from './utils/object.js';
 import { redactSecrets } from './utils/redact.js';
 import { truncate } from './utils/text.js';
+import type { ExecOptions, Runner } from './utils/exec.js';
 import type { StepLogger } from './plugin-config.js';
 
 /**

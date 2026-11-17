@@ -3,6 +3,8 @@
  * publish, run against temporary projects with the Packagist call mocked.
  * @file
  */
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import {
   afterEach,
   beforeEach,
@@ -11,10 +13,7 @@ import {
   it,
   jest,
 } from '@jest/globals';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import plugin, { prepare, publish, verifyConditions } from '../src/index.js';
-import type { StepLogger } from '../src/plugin-config.js';
 import { PackagistClient } from '../src/packagist.js';
 import {
   REPOSITORY_URL,
@@ -24,6 +23,7 @@ import {
 } from './utils/context.js';
 import { withComposer } from './utils/composer.js';
 import { withTmp } from './utils/tmpdir.js';
+import type { StepLogger } from '../src/plugin-config.js';
 
 /**
  * Fail closed: unless a test mocks the Packagist call itself, a step that
@@ -191,8 +191,9 @@ describe('verifyConditions', () => {
             }).context,
           ).catch((error: unknown) => error),
       );
-      expect(JSON.stringify(failure)).toContain('env=[]');
-      expect(JSON.stringify(failure)).toContain('config=[[redacted]]');
+      const shown = JSON.stringify(failure);
+      expect(shown).toContain('env=[]');
+      expect(shown).toContain('config=[[redacted]]');
     });
   });
 

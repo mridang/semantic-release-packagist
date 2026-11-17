@@ -37,8 +37,10 @@ export function redactUrl(url: string): string {
     return url;
   }
   const parsed = new URL(url);
+  // eslint-disable-next-line functional/immutable-data -- URL objects have no immutable form and this one is local
   parsed.password = '';
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    // eslint-disable-next-line functional/immutable-data -- URL objects have no immutable form and this one is local
     parsed.username = '';
   }
   return parsed.toString();

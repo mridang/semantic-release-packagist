@@ -2,10 +2,10 @@
  * @file Hides credentials and secrets in text before it is logged or shown.
  */
 
-const SCHEME_CHAR = /[a-z0-9+.-]/i;
-const LETTER = /[a-z]/i;
-const NAME_END = /[\s/@:]/;
-const SPACE = /\s/;
+const SCHEME_CHAR = /[a-z0-9+.-]/iu;
+const LETTER = /[a-z]/iu;
+const NAME_END = /[\s/@:]/u;
+const SPACE = /\s/u;
 
 /**
  * Find where the URL scheme in front of a `://` starts: the first letter of
@@ -16,10 +16,13 @@ const SPACE = /\s/;
  * @returns The index where the scheme starts, or -1 when there is none.
  */
 function schemeStart(text: string, at: number, lowest: number): number {
+  // eslint-disable-next-line functional/no-let -- the scan walks the text one character at a time and stays linear
   let start = at;
+  // eslint-disable-next-line functional/no-loop-statements -- the scan walks the text one character at a time and stays linear
   while (start > lowest && SCHEME_CHAR.test(text.charAt(start - 1))) {
     start--;
   }
+  // eslint-disable-next-line functional/no-let,functional/no-loop-statements -- the scan walks the text one character at a time and stays linear
   for (let index = start; index < at; index++) {
     if (LETTER.test(text.charAt(index))) {
       return index;
@@ -36,7 +39,9 @@ function schemeStart(text: string, at: number, lowest: number): number {
  * @returns The index of the first character that is not part of the name.
  */
 function nameEnd(text: string, from: number): number {
+  // eslint-disable-next-line functional/no-let -- the scan walks the text one character at a time and stays linear
   let index = from;
+  // eslint-disable-next-line functional/no-loop-statements -- the scan walks the text one character at a time and stays linear
   while (index < text.length && !NAME_END.test(text.charAt(index))) {
     index++;
   }
@@ -67,12 +72,17 @@ function passwordEnd(
   }
   const password = colon + 1;
   if (password < run.start || password > run.end) {
+    // eslint-disable-next-line functional/no-let -- the run is scanned once and cached for the next candidate
     let end = password;
+    // eslint-disable-next-line functional/no-loop-statements -- the run is scanned once and cached for the next candidate
     while (end < text.length && !SPACE.test(text.charAt(end))) {
       end++;
     }
+    // eslint-disable-next-line functional/immutable-data -- the cache is shared across calls so a long run is scanned once
     run.start = password;
+    // eslint-disable-next-line functional/immutable-data -- the cache is shared across calls so a long run is scanned once
     run.end = end;
+    // eslint-disable-next-line functional/immutable-data -- the cache is shared across calls so a long run is scanned once
     run.at = text.lastIndexOf('@', end - 1);
   }
   return run.at >= password ? run.at + 1 : -1;
@@ -126,10 +136,15 @@ function matchEnd(
  */
 function redactUserinfo(text: string, withPassword: boolean): string {
   const run = { start: 0, end: -1, at: -1 };
+  // eslint-disable-next-line functional/no-let -- a single left to right pass over the text
   let out = '';
+  // eslint-disable-next-line functional/no-let -- a single left to right pass over the text
   let copied = 0;
-  let search = 0;
+  // eslint-disable-next-line functional/no-let -- a single left to right pass over the text
+  let search: number;
+  // eslint-disable-next-line functional/no-loop-statements -- a single left to right pass over the text
   for (
+    // eslint-disable-next-line functional/no-let -- a single left to right pass over the text
     let at = text.indexOf('://');
     at !== -1;
     at = text.indexOf('://', search)
@@ -163,13 +178,13 @@ function redactUserinfo(text: string, withPassword: boolean): string {
 export function redactCredentials(text: string): string {
   return redactUserinfo(redactUserinfo(text, true), false)
     .replaceAll(
-      /([?&](?:access_token|token|password|private_token)=)[^&\s#'"]+/gi,
+      /([?&](?:access_token|token|password|private_token)=)[^&\s#'"]+/giu,
       '$1***',
     )
-    .replaceAll(/\b((?:proxy-)?authorization)\s*:[^\r\n]*/gi, '$1: ***')
-    .replaceAll(/\bbearer\s+[\w.~+/=-]+/gi, 'Bearer ***')
+    .replaceAll(/\b((?:proxy-)?authorization)\s*:[^\r\n]*/giu, '$1: ***')
+    .replaceAll(/\bbearer\s+[\w.~+/=-]+/giu, 'Bearer ***')
     .replaceAll(
-      /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|glpat-[A-Za-z0-9_-]{16,})/g,
+      /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|glpat-[A-Za-z0-9_-]{16,})/gu,
       '***',
     );
 }
@@ -209,9 +224,9 @@ export function redactSecrets(
   // One pass, so that a secret cannot match inside the marker of another.
   const pattern = new RegExp(
     forms
-      .map((form) => form.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .map((form) => form.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`))
       .join('|'),
-    'g',
+    'gu',
   );
   return text.replace(pattern, '[redacted]');
 }

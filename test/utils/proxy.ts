@@ -39,7 +39,9 @@ export async function startTunnelProxy(
     upstream.on('error', () => socket.destroy());
     socket.on('error', () => upstream.destroy());
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   return {

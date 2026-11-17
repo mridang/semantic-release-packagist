@@ -91,6 +91,16 @@ function headerRecord(headers: unknown): Record<string, string> {
   return {};
 }
 
+type Decoded =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly Decoded[]
+  | { readonly [key: string]: Decoded }
+  | Uint8Array
+  | undefined;
+
 /**
  * Decode a request body the way the tests want to inspect it.
  * @param body - The body undici hands to the dispatcher.
@@ -99,7 +109,7 @@ function headerRecord(headers: unknown): Record<string, string> {
  * @example
  * decodeBody('{"a":1}', { 'content-type': 'application/json' }); // { a: 1 }
  */
-function decodeBody(body: unknown, headers: Record<string, string>): unknown {
+function decodeBody(body: unknown, headers: Record<string, string>): Decoded {
   const type = Object.entries(headers).find(
     ([k]) => k.toLowerCase() === 'content-type',
   )?.[1];
@@ -109,7 +119,7 @@ function decodeBody(body: unknown, headers: Record<string, string>): unknown {
   if (type?.includes('x-www-form-urlencoded')) {
     return Object.fromEntries(new URLSearchParams(body));
   }
-  return JSON.parse(body) as unknown;
+  return JSON.parse(body) as Decoded;
 }
 
 /**

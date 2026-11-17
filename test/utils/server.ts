@@ -2,12 +2,8 @@
  * Test helpers that run local HTTP servers, including misbehaving proxies.
  * @file
  */
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
+import { createServer } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 
 export interface LoopbackServer {
@@ -50,7 +46,9 @@ export async function listen(
     );
     handler(request, response);
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
@@ -91,14 +89,18 @@ export async function startFaultyProxy(
       socket.destroy();
     }
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
     url: `http://127.0.0.1:${port}`,
     connects: () => attempts.length,
     close: async () => {
-      for (const socket of sockets) socket.destroy();
+      for (const socket of sockets) {
+        socket.destroy();
+      }
       return stop(server);
     },
   };

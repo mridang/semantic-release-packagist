@@ -33,6 +33,7 @@ export default {
       {
         assets: ['package.json', 'package-lock.json'],
         message:
+          // eslint-disable-next-line no-template-curly-in-string -- semantic-release expands this template itself
           'chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}',
       },
     ],

@@ -73,7 +73,7 @@ describe('redactSecrets', () => {
 describe('redactCredentials user information scan', () => {
   // Built from strings on purpose: this is the slow pattern the code used to hold.
   const oldPattern = (...parts: string[]): RegExp =>
-    new RegExp(parts.join(''), 'gi');
+    new RegExp(parts.join(''), 'giu');
   const scheme = String.raw`([a-z][a-z0-9+.-]*:\/\/)`;
   const withPassword = String.raw`[^\s/@:]*:\S*@`;
   const token = String.raw`[^\s/@:]+@`;
@@ -104,6 +104,7 @@ describe('redactCredentials user information scan', () => {
   it('gives the same result as the regular expressions it replaced', () => {
     let seed = 12_345;
     const below = (limit: number): number => {
+      // eslint-disable-next-line no-bitwise -- the generator is defined with a 32-bit unsigned shift
       seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
       return seed % limit;
     };

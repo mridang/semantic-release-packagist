@@ -4,14 +4,11 @@
  * @file
  */
 import { describe, expect, it, jest } from '@jest/globals';
-import {
-  updateLock,
-  validate,
-  type ComposerOptions,
-  type CustomCommand,
-} from '../src/composer.js';
-import { ExecError, type Runner } from '../src/utils/exec.js';
+import { updateLock, validate } from '../src/composer.js';
+import { ExecError } from '../src/utils/exec.js';
 import { recordingLogger } from './utils/logger.js';
+import type { ComposerOptions, CustomCommand } from '../src/composer.js';
+import type { Runner } from '../src/utils/exec.js';
 
 const CWD = '/work/project';
 
@@ -23,15 +20,17 @@ const CWD = '/work/project';
  * @example
  * const { options, lines } = make(jest.fn<Runner>().mockResolvedValue(''));
  */
-function make(
-  run: Runner,
-  options: Partial<ComposerOptions> = {},
-): { options: ComposerOptions; lines: string[] } {
+function make(run: Runner, options: Partial<ComposerOptions> = {}) {
   const { logger, lines } = recordingLogger();
-  return {
-    lines,
-    options: { cwd: CWD, logger, env: {}, secrets: [], run, ...options },
+  const built: ComposerOptions = {
+    cwd: CWD,
+    logger,
+    env: {},
+    secrets: [],
+    run,
+    ...options,
   };
+  return { lines, options: built };
 }
 
 /**

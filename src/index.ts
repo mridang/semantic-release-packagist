@@ -5,23 +5,24 @@
  */
 import { access, readFile, writeFile } from 'node:fs/promises';
 import SemanticReleaseError from '@semantic-release/error';
-import type {
-  PrepareContext,
-  PublishContext,
-  VerifyConditionsContext,
-} from 'semantic-release';
-import { updateLock, validate, type ComposerOptions } from './composer.js';
+import { updateLock, validate } from './composer.js';
 import { PackagistClient } from './packagist.js';
 import {
   cwdOf,
   requireRepositoryUrl,
   resolveCredentials,
   secretsOf,
-  type PackagistPluginConfig,
 } from './plugin-config.js';
 import { messageOf } from './utils/error.js';
 import { isRecord } from './utils/object.js';
 import { redactUrl } from './utils/url.js';
+import type { PackagistPluginConfig } from './plugin-config.js';
+import type { ComposerOptions } from './composer.js';
+import type {
+  PrepareContext,
+  PublishContext,
+  VerifyConditionsContext,
+} from 'semantic-release';
 
 export type { PackagistPluginConfig } from './plugin-config.js';
 
@@ -64,6 +65,15 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/** A value that `JSON.parse` can produce. */
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
 /**
  * Read and parse a `composer.json`.
  * @param path - The file.
@@ -73,9 +83,9 @@ async function pathExists(path: string): Promise<boolean> {
  * @example
  * const data = await parseComposerJson('/project/composer.json');
  */
-async function parseComposerJson(path: string): Promise<unknown> {
+async function parseComposerJson(path: string): Promise<JsonValue> {
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    return JSON.parse(await readFile(path, 'utf8')) as JsonValue;
   } catch (error: unknown) {
     throw new SemanticReleaseError(
       '`composer.json` validation failed.',

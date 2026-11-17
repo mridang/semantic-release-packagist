@@ -4,6 +4,6 @@
  * @file
  */
 export default {
-  ignoreDependencies: [/^@semantic-release\//],
+  ignoreDependencies: [/^@semantic-release\//u],
   ignoreBinaries: ['composer'],
 };

@@ -4,11 +4,11 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import {
-  type PackagistPluginConfig,
   cwdOf,
   requireRepositoryUrl,
   resolveCredentials,
 } from '../src/plugin-config.js';
+import type { PackagistPluginConfig } from '../src/plugin-config.js';
 
 describe('resolveCredentials', () => {
   it('reads the plugin configuration', () => {

@@ -10,14 +10,7 @@
  * const { logger, lines } = recordingLogger();
  * logger.log('done'); // lines is ['done']
  */
-export function recordingLogger(): {
-  logger: {
-    log: (...args: unknown[]) => void;
-    warn: (...args: unknown[]) => void;
-    error: (...args: unknown[]) => void;
-  };
-  lines: string[];
-} {
+export function recordingLogger() {
   const lines: string[] = [];
   const write = (...args: unknown[]): void => {
     lines.push(args.map(String).join(' '));

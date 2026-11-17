@@ -3,30 +3,27 @@
  * redirects, proxies and the errors they raise, against mocked and local servers.
  * @file
  */
-import { afterEach, describe, expect, it } from '@jest/globals';
 import { createServer } from 'node:http';
 import { inspect } from 'node:util';
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { MockAgent } from 'undici';
+import { PackagistClient, request } from '../src/packagist.js';
 import urls from './fixtures/insecure-urls.json' with { type: 'json' };
-import {
-  PackagistClient,
-  request,
-  type RequestOptions,
-} from '../src/packagist.js';
 import { failHttp, mockAgent, mockHttp } from './utils/http-mock.js';
 import { startTunnelProxy } from './utils/proxy.js';
 import { listen, startFaultyProxy } from './utils/server.js';
+import type { RequestOptions } from '../src/packagist.js';
 
 /** A loopback connection failure, as the network layer reports it. */
-const NETWORK_ERROR_LOOPBACK = /Network error calling 127\.0\.0\.1/;
+const NETWORK_ERROR_LOOPBACK = /Network error calling 127\.0\.0\.1/u;
 /** A request that ran past its deadline. */
-const TIMEOUT_MESSAGE = /aborted due to timeout/;
+const TIMEOUT_MESSAGE = /aborted due to timeout/u;
 /** A connection the peer closed before the response. */
-const OTHER_SIDE_CLOSED = /other side closed/;
+const OTHER_SIDE_CLOSED = /other side closed/u;
 /** A request to a host that does not resolve. */
-const NETWORK_ERROR_INVALID_HOST = /Network error calling something\.invalid/;
+const NETWORK_ERROR_INVALID_HOST = /Network error calling something\.invalid/u;
 /** Characters that must be percent-encoded in a URL. */
-const UNSAFE_URL_CHARACTERS = /[ #é]/;
+const UNSAFE_URL_CHARACTERS = /[ #é]/u;
 
 describe('request', () => {
   const GET = 'GET https://x.test/a';
@@ -191,6 +188,7 @@ describe('request', () => {
       expect(shown).not.toContain('PW-SECRET');
       expect(shown).toContain('HTTPS_PROXY');
     } finally {
+      // eslint-disable-next-line require-atomic-updates -- restores the environment after the awaited work
       process.env = saved;
     }
   });
@@ -414,8 +412,9 @@ describe('request over a real socket, deadlines and bodies', () => {
       `http://localhost:${server.port}/a?token=SECRET`,
       { headers: { Authorization: 'Bearer SECRET' } },
     ).catch((error: unknown) => error);
-    expect(String(error)).toContain('ECONNREFUSED');
-    expect(String(error)).not.toContain('SECRET');
+    const shown = String(error);
+    expect(shown).toContain('ECONNREFUSED');
+    expect(shown).not.toContain('SECRET');
   });
 
   it('goes through the proxy named by the environment', async () => {
@@ -463,7 +462,9 @@ describe('request over a real socket, deadlines and bodies', () => {
       ).rejects.toThrow(NETWORK_ERROR_INVALID_HOST);
       expect(Date.now() - started).toBeLessThan(4000);
       const connects = proxy.connects();
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 500);
+      });
       expect(proxy.connects()).toBe(connects);
     },
     15_000,
@@ -495,12 +496,12 @@ const make = (credentials = CREDENTIALS): PackagistClient =>
 async function failure(
   client: PackagistClient,
   url = REPOSITORY,
-): Promise<unknown> {
+): Promise<Error | undefined> {
   try {
     await client.updatePackage(url);
     return undefined;
   } catch (error: unknown) {
-    return error;
+    return error instanceof Error ? error : new Error(String(error));
   }
 }
 
@@ -688,8 +689,9 @@ describe('PackagistClient.updatePackage failures', () => {
       const error = await failure(
         make({ username: 'u', apiToken: 'tok/+= é' }),
       );
-      expect(JSON.stringify(error)).toContain('[redacted]');
-      expect(JSON.stringify(error)).not.toContain(echoed);
+      const shown = JSON.stringify(error);
+      expect(shown).toContain('[redacted]');
+      expect(shown).not.toContain(echoed);
     },
   );
 
@@ -701,8 +703,9 @@ describe('PackagistClient.updatePackage failures', () => {
       }),
     );
     const error = await failure(make());
-    expect(String(error)).toContain('[redacted]');
-    expect(String(error)).not.toContain('SECRET-TOKEN');
+    const shown = String(error);
+    expect(shown).toContain('[redacted]');
+    expect(shown).not.toContain('SECRET-TOKEN');
   });
 
   it('keeps the credentials of the repository URL out of a response that echoes it', async () => {
@@ -716,8 +719,9 @@ describe('PackagistClient.updatePackage failures', () => {
       make(),
       'https://user:repopass@github.com/o/r.git',
     );
-    expect(JSON.stringify(error)).not.toContain('repopass');
-    expect(JSON.stringify(error)).toContain('[redacted]');
+    const shown = JSON.stringify(error);
+    expect(shown).not.toContain('repopass');
+    expect(shown).toContain('[redacted]');
   });
 
   it('leaves credentials out of the repository URL in a not found error', async () => {
@@ -726,8 +730,9 @@ describe('PackagistClient.updatePackage failures', () => {
       make(),
       'https://user:s3cret@github.com/o/r.git',
     );
-    expect(JSON.stringify(error)).not.toContain('s3cret');
-    expect(JSON.stringify(error)).toContain('https://github.com/o/r.git');
+    const shown = JSON.stringify(error);
+    expect(shown).not.toContain('s3cret');
+    expect(shown).toContain('https://github.com/o/r.git');
   });
 });
 
@@ -735,21 +740,25 @@ describe('request and idle connections', () => {
   it('closes its connection at once, even when the server advertises a long keep-alive', async () => {
     const server = createServer((_req, res) => res.end('{}'));
     server.keepAliveTimeout = 60_000;
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
-    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
     try {
       await request(`http://127.0.0.1:${port}/a`, {});
       const open = async (tries: number): Promise<number> => {
-        const count = await new Promise<number>((resolve) =>
-          server.getConnections((_error, n) => resolve(n)),
-        );
+        const count = await new Promise<number>((resolve) => {
+          server.getConnections((_error, n) => {
+            resolve(n);
+          });
+        });
         if (count === 0 || tries === 0) {
           return count;
         }
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 25);
+        });
         return open(tries - 1);
       };
       expect(await open(20)).toBe(0);

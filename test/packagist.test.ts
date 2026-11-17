@@ -11,6 +11,7 @@ import { PackagistClient, request } from '../src/packagist.js';
 import urls from './fixtures/insecure-urls.json' with { type: 'json' };
 import { failHttp, mockAgent, mockHttp } from './utils/http-mock.js';
 import { startTunnelProxy } from './utils/proxy.js';
+import { rejectionOf } from './utils/rejection.js';
 import { listen, startFaultyProxy } from './utils/server.js';
 import type { RequestOptions } from '../src/packagist.js';
 
@@ -138,11 +139,14 @@ describe('request', () => {
       'https://x.test',
       Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
     );
-    const error = await request(
-      'https://x.test/a?token=secret',
-      { headers: { Authorization: 'Bearer secret' } },
-      via({ retries: 1 }),
-    ).catch((error: unknown) => error);
+    const error = await rejectionOf(
+      request(
+        'https://x.test/a?token=secret',
+        { headers: { Authorization: 'Bearer secret' } },
+        via({ retries: 1 }),
+      ),
+      Error,
+    );
     expect(String(error)).toBe(
       'Error: Network error calling x.test: socket hang up',
     );
@@ -177,13 +181,13 @@ describe('request', () => {
     const saved = { ...process.env };
     process.env.HTTPS_PROXY = urls.proxy;
     try {
-      const error = await request(URL_A, {}).catch((error: unknown) => error);
+      const error = await rejectionOf(request(URL_A, {}), Error);
       expect(error).toMatchObject({ code: 'EPROXY' });
       const shown = [
         String(error),
         inspect(error, { depth: 10, showHidden: true }),
         JSON.stringify(error, Object.getOwnPropertyNames(error)),
-        JSON.stringify(Object.entries(error as object)),
+        JSON.stringify(Object.entries(error)),
       ].join('\n');
       expect(shown).not.toContain('PW-SECRET');
       expect(shown).toContain('HTTPS_PROXY');
@@ -408,10 +412,12 @@ describe('request over a real socket, deadlines and bodies', () => {
   it('names the code when a closed local port refuses the connection, without leaking the URL', async () => {
     const server = await listen(() => undefined);
     await server.close();
-    const error = await request(
-      `http://localhost:${server.port}/a?token=SECRET`,
-      { headers: { Authorization: 'Bearer SECRET' } },
-    ).catch((error: unknown) => error);
+    const error = await rejectionOf(
+      request(`http://localhost:${server.port}/a?token=SECRET`, {
+        headers: { Authorization: 'Bearer SECRET' },
+      }),
+      Error,
+    );
     const shown = String(error);
     expect(shown).toContain('ECONNREFUSED');
     expect(shown).not.toContain('SECRET');

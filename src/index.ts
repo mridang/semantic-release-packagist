@@ -9,6 +9,7 @@ import { updateLock, validate } from './composer.js';
 import { PackagistClient } from './packagist.js';
 import {
   cwdOf,
+  envOf,
   requireRepositoryUrl,
   resolveCredentials,
   secretsOf,
@@ -38,7 +39,7 @@ function composerOptions(
   pluginConfig: PackagistPluginConfig,
   context: VerifyConditionsContext | PrepareContext,
 ): ComposerOptions {
-  const env = context.env ?? process.env;
+  const env = envOf(context);
   return {
     cwd: cwdOf(context),
     logger: context.logger,
@@ -85,6 +86,7 @@ type JsonValue =
  */
 async function parseComposerJson(path: string): Promise<JsonValue> {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- JSON.parse can only produce the JSON values that JsonValue describes, and the repository has no schema library to validate them with
     return JSON.parse(await readFile(path, 'utf8')) as JsonValue;
   } catch (error: unknown) {
     throw new SemanticReleaseError(
@@ -112,7 +114,7 @@ export async function verifyConditions(
 ): Promise<void> {
   const { logger, options } = context;
   const cwd = cwdOf(context);
-  const env = context.env ?? process.env;
+  const env = envOf(context);
 
   const composerJsonPath = `${cwd}/composer.json`;
   if (await pathExists(composerJsonPath)) {
@@ -203,7 +205,7 @@ export async function publish(
   pluginConfig: PackagistPluginConfig,
   context: PublishContext,
 ): Promise<void> {
-  const { logger, options, env: contextEnv } = context;
+  const { logger, options } = context;
 
   try {
     const repositoryUrl = requireRepositoryUrl(options);
@@ -213,7 +215,7 @@ export async function publish(
     );
 
     await new PackagistClient(
-      resolveCredentials(pluginConfig, contextEnv ?? process.env),
+      resolveCredentials(pluginConfig, envOf(context)),
     ).updatePackage(repositoryUrl);
 
     logger.log('Successfully notified Packagist.');

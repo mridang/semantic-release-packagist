@@ -242,6 +242,7 @@ function decodeBody(text: string): JsonValue | undefined {
     return undefined;
   }
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- JSON.parse can only produce the JSON values that JsonValue describes, and the repository has no schema library to validate them with
     return JSON.parse(text) as JsonValue;
   } catch {
     return text.slice(0, 500);

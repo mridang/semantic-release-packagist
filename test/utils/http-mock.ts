@@ -119,6 +119,7 @@ function decodeBody(body: unknown, headers: Record<string, string>): Decoded {
   if (type?.includes('x-www-form-urlencoded')) {
     return Object.fromEntries(new URLSearchParams(body));
   }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- JSON.parse can only produce JSON values, which Decoded covers, and the repository has no schema library to validate them with
   return JSON.parse(body) as Decoded;
 }
 

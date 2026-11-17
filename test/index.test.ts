@@ -84,10 +84,11 @@ describe('verifyConditions', () => {
 
   it('runs composer validate by default', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
-      const { context, lines } = verifyContext({ cwd });
-      await withComposer('echo "$@" > args.txt', async () =>
-        verifyConditions(CONFIG, context),
-      );
+      const { lines } = await withComposer('echo "$@" > args.txt', async () => {
+        const built = verifyContext({ cwd });
+        await verifyConditions(CONFIG, built.context);
+        return built;
+      });
       expect(lines).toContain('composer.json is valid (default validation).');
       expect(await readFile(path.join(cwd, 'args.txt'), 'utf8')).toBe(
         'validate --strict --no-check-version\n',
@@ -97,10 +98,9 @@ describe('verifyConditions', () => {
 
   it('reports what composer said when the default validation fails', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
-      const { context } = verifyContext({ cwd });
       await expect(
         withComposer('echo "name is invalid" >&2; exit 2', async () =>
-          verifyConditions(CONFIG, context),
+          verifyConditions(CONFIG, verifyContext({ cwd }).context),
         ),
       ).rejects.toMatchObject({
         code: 'EINVALIDCOMPOSERJSON',
@@ -112,9 +112,10 @@ describe('verifyConditions', () => {
 
   it('reports a missing composer apart from an invalid composer.json', async () => {
     await withTmp({ 'composer.json': COMPOSER }, async (cwd) => {
-      const { context } = verifyContext({ cwd });
       await expect(
-        withComposer(undefined, async () => verifyConditions(CONFIG, context)),
+        withComposer(undefined, async () =>
+          verifyConditions(CONFIG, verifyContext({ cwd }).context),
+        ),
       ).rejects.toMatchObject({
         code: 'ECOMPOSERNOTFOUND',
         message: '`composer` could not be run.',
@@ -359,9 +360,13 @@ describe('prepare', () => {
     await withTmp(
       { 'composer.json': COMPOSER, 'composer.lock': '{}' },
       async (cwd) => {
-        const { context, lines } = prepareContext({ cwd });
-        await withComposer('echo "$@" > args.txt', async () =>
-          prepare(CONFIG, context),
+        const { lines } = await withComposer(
+          'echo "$@" > args.txt',
+          async () => {
+            const built = prepareContext({ cwd });
+            await prepare(CONFIG, built.context);
+            return built;
+          },
         );
         expect(lines).toContain('composer.lock updated (default command).');
         expect(await readFile(path.join(cwd, 'args.txt'), 'utf8')).toBe(

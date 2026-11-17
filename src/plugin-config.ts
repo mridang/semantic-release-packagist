@@ -112,6 +112,21 @@ export function cwdOf(context: { readonly cwd?: string }): string {
 }
 
 /**
+ * The environment a step runs in: the one semantic-release was given, or else
+ * the environment of the process.
+ * @param context - A semantic-release step context.
+ * @param context.env - The environment that semantic-release was given, when there is one.
+ * @returns The environment variables of the step.
+ * @example
+ * envOf({ env: { PACKAGIST_TOKEN: 'x' } }); // { PACKAGIST_TOKEN: 'x' }
+ */
+export function envOf(context: {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}): Readonly<Record<string, string | undefined>> {
+  return context.env ?? process.env;
+}
+
+/**
  * The repository URL that Packagist is told about.
  * @param options - The semantic-release options.
  * @param options.repositoryUrl - The repository URL that semantic-release determined, when it did.

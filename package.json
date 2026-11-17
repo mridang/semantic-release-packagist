@@ -56,7 +56,7 @@
   "devDependencies": {
     "@eslint/compat": "^2.1.1",
     "@jest/globals": "^30.0.3",
-    "@mridang/eslint-defaults": "^2.4.0",
+    "@mridang/eslint-defaults": "^2.5.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.0",
